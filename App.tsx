@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
-import { Music, Download, ExternalLink, Layers, Youtube, FileAudio, ArrowRight, AlertTriangle, CheckCircle2, Search, Disc, Loader2, Music2, SplitSquareVertical } from 'lucide-react';
+import { Music, Download, ExternalLink, Layers, Youtube, FileAudio, ArrowRight, AlertTriangle, CheckCircle2, Search, Disc, Loader2, Music2, SplitSquareVertical, FileMusic } from 'lucide-react';
 import { getYouTubeID } from './utils/youtube';
 import { LocalPlayer } from './components/LocalPlayer';
 import { LocalAISeparator } from './components/LocalAISeparator';
 import { Pitcher } from './components/Pitcher';
+import { MidiTranscriber } from './components/MidiTranscriber';
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
     ? (import.meta as any).env.VITE_API_URL
     : 'http://localhost:8000';
 
-type TabType = 'source' | 'pitcher' | 'splitter';
+type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber';
 
 export default function App() {
     // Tabs: 3 modules
@@ -114,6 +115,7 @@ export default function App() {
         { key: 'source', icon: <Download size={18} />, label: '音樂來源', color: 'from-purple-500 to-pink-500' },
         { key: 'pitcher', icon: <Music2 size={18} />, label: '變調器', color: 'from-blue-500 to-cyan-500' },
         { key: 'splitter', icon: <SplitSquareVertical size={18} />, label: '分離器', color: 'from-green-500 to-emerald-500' },
+        { key: 'transcriber', icon: <FileMusic size={18} />, label: '採譜', color: 'from-amber-500 to-orange-500' },
     ];
 
     return (
@@ -313,6 +315,11 @@ export default function App() {
                     <LocalAISeparator
                         audioFileUrl={downloadedFileUrl ? (downloadedFileUrl.startsWith('blob:') ? downloadedFileUrl : `${API_BASE_URL}${downloadedFileUrl}`) : undefined}
                     />
+                </div>
+
+                {/* TAB 4: TRANSCRIBER - 採譜 */}
+                <div style={{ display: activeTab === 'transcriber' ? 'block' : 'none' }} className="animate-fade-in space-y-4 max-w-4xl mx-auto">
+                    <MidiTranscriber />
                 </div>
 
             </main>
