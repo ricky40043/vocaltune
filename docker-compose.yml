@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  vocal-studio:
+    build: .
+    container_name: vocal-studio
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persistent storage for downloads and separated tracks
+      - ./downloads:/app/downloads
+      - ./separated_audio:/app/separated_audio
+    restart: unless-stopped
+    # Optional CPU limit to keep your PC smooth
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '2.0'
+    #       memory: 4G

@@ -1,0 +1,7 @@
+{
+  "name": "VocalTune - YouTube Practice Studio",
+  "description": "A mobile-friendly vocal practice tool. Import YouTube videos, adjust playback speed, and simulate key changes for practice.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

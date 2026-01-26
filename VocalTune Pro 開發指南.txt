@@ -1,0 +1,172 @@
+﻿VocalTune Pro 全端開發實戰指南
+這份文件規劃了從 YouTube 下載、AI 分離到線上編輯的完整實作路徑。
+請依照以下步驟建立資料夾結構，並複製對應的 Prompt 給您的 AI Coding Assistant (Cursor/Windsurf/ChatGPT) 進行開發。
+1. 專案結構初始化 (Project Structure)
+請在您的工作區建立一個主目錄，並依照以下結構初始化三個子模組。
+mkdir VocalTune-Pro
+cd VocalTune-Pro
+
+# 1. 前端 (您現有的專案，或新起)
+mkdir frontend-client
+
+# 2. 後端 API (負責接單、佇列管理)
+mkdir backend-api
+
+# 3. AI Worker (負責吃重的下載與分離運算)
+mkdir ai-worker
+
+2. 雲端基礎建設準備 (Infrastructure Setup)
+在寫 Code 之前，先搞定 GCP 儲存與權限。
+步驟 2.1：設定 Google Cloud Storage (GCS)
+為了避免費用爆炸，我們需要設定 Lifecycle 規則。
+1. 建立 Bucket：
+gsutil mb -l us-west1 gs://vocaltune-temp-storage
+
+2. 設定生命週期 (1天後刪除)：
+建立檔案 lifecycle.json:
+{
+ "rule": [
+   {
+     "action": {"type": "Delete"},
+     "condition": {"age": 1}
+   }
+ ]
+}
+
+套用規則：
+gsutil lifecycle set lifecycle.json gs://vocaltune-temp-storage
+
+步驟 2.2：準備 Service Account Key
+   1. 在 GCP IAM 建立一個 Service Account。
+   2. 賦予角色：Storage Object Admin。
+   3. 下載 JSON Key，並命名為 gcp-key.json。
+   4. 注意： 這個 Key 之後要放入 backend-api 和 ai-worker 資料夾中。
+3. 模組開發：後端 API (Backend API)
+位置： /backend-api
+技術棧： FastAPI, Redis, Google Cloud Storage
+給 AI 的開發指令 (Prompt)：
+請複製以下指令貼給 AI：
+這是一個 FastAPI 專案，負責處理音樂分離服務的請求。
+
+請幫我建立以下檔案結構與程式碼：
+1. `main.py`: 
+  - 建立 POST /api/separate 端點，接收 `{ "youtube_url": "..." }`。
+  - 驗證 URL 格式。
+  - 生成一個 unique job_id。
+  - 將任務推送到 Redis Queue (使用 celery.send_task，Queue名稱為 'music_separation')。
+  - 回傳 `{ "job_id": "...", "status": "pending" }`。
+  - 建立 GET /api/status/{job_id} 端點，查詢 Redis 中的任務狀態。如果完成，回傳 GCS 上的檔案連結。
+  - 建立 POST /api/mix 端點，接收 job_id 和各軌音量參數，觸發混音任務。
+
+2. `celery_config.py`: 設定 Celery 連接 Redis 的 URL (從環境變數讀取 REDIS_URL)。
+
+3. `requirements.txt`: 包含 fastapi, uvicorn, celery, redis, python-multipart, google-cloud-storage。
+
+4. `Dockerfile`: 使用 python:3.10-slim，安裝依賴並執行 uvicorn。
+
+請確保程式碼中有 CORS 設定，允許前端 localhost 和 cloud run domain 連線。
+
+4. 模組開發：AI Worker (Heavy Lifter)
+位置： /ai-worker
+技術棧： Celery, Demucs (Hybrid Transformer), yt-dlp, FFmpeg
+這是核心運算單元。為了確保能對抗 YouTube 的反爬蟲機制與使用最新的 AI 模型，必須使用 Git 版本來安裝核心工具。
+給 AI 的開發指令 (Prompt)：
+請複製以下指令貼給 AI：
+這是一個 Celery Worker 專案，負責執行繁重的 AI 音樂處理。
+請注意：這兩個核心工具必須從 Git Source 安裝以取得最新修復：
+1. **yt-dlp**: [https://github.com/yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp)
+2. **Demucs**: [https://github.com/facebookresearch/demucs](https://github.com/facebookresearch/demucs)
+
+請幫我建立 `tasks.py` 和必要的依賴設定：
+
+1. **核心任務函數 `separate_music(youtube_url, job_id)`**:
+  - 使用 `yt-dlp` 下載音訊為 MP3 (格式 bestaudio)。
+  - 使用 `demucs` (模型 htdemucs) 將 MP3 分離成 4 軌 (vocals, drums, bass, other)。
+  - **關鍵優化**：Demucs 推論時請強制指定 device='cpu' (因為要在 Cloud Run 跑)。
+  - 使用 `google.cloud.storage` 將分離後的 4 個檔案上傳到 GCS bucket (從環境變數讀取 BUCKET_NAME)。路徑結構為 `jobs/{job_id}/{stem}.mp3`。
+  - 生成並回傳這 4 個檔案的 Signed URL (有效期 1 小時)。
+
+2. **混音任務函數 `mix_tracks(job_id, volumes)`**:
+  - `volumes` 是一個字典，如 {'vocals': 1.0, 'drums': 0.0}。
+  - 下載該 job 的 4 個原始軌道。
+  - 使用 `ffmpeg-python` 或 subprocess 呼叫 ffmpeg 進行混音 (filter_complex amix)。
+  - 上傳混音後的結果 `mix.mp3` 到 GCS 並回傳 URL。
+
+3. **Dockerfile (極度重要)**:
+  - Base image: `python:3.10-slim`
+  - 安裝系統依賴: `ffmpeg` (必須安裝), `libsndfile1`, `git` (必須安裝以支援 pip git install)。
+  - 安裝 Python 依賴: `celery`, `redis`, `google-cloud-storage`, `ffmpeg-python`。
+  - **核心工具安裝 (Git Source)**:
+    為了確保下載功能正常與模型最新，請使用以下指令安裝：
+    `RUN pip install git+https://github.com/yt-dlp/yt-dlp.git git+https://github.com/facebookresearch/demucs.git`
+  - **Torch 安裝**: 
+    `RUN pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu`
+  - Entrypoint: `celery -A tasks worker --loglevel=info --concurrency=1`
+
+請幫我寫出完整的 `tasks.py` 和 `Dockerfile`。
+
+5. 模組開發：前端整合 (Frontend Client)
+位置： /frontend-client (您現有的專案)
+技術棧： React, Wavesurfer.js
+給 AI 的開發指令 (Prompt)：
+請複製以下指令貼給 AI：
+我正在開發一個 React 音樂分離 App。請幫我建立一個 `MultitrackEditor` 組件。
+
+需求如下：
+1. 安裝依賴：`wavesurfer.js` 和 `regions-plugin` (如果需要)。
+2. UI 佈局：
+  - 頂部：URL 輸入框與「開始分離」按鈕 (呼叫 POST /api/separate)。
+  - 中間：Loading 狀態 (Polling GET /api/status/{job_id})。
+  - 底部：當分離完成後，顯示 4 個波形軌道 (Vocals, Drums, Bass, Other)。
+3. 軌道控制：
+  - 每一軌都要有獨立的 `Mute` (靜音), `Solo` (獨奏) 按鈕。
+  - 每一軌都要有一個 `Volume Slider` (0.0 ~ 1.0)。
+  - **同步播放**：只有一個主 Play/Pause 按鈕，點擊時 4 個軌道必須同時開始/暫停。
+4. 匯出功能：
+  - 一個「下載混音」按鈕。
+  - 點擊後，收集當前 4 軌的音量數值，POST 到後端 /api/mix，並等待回傳下載連結。
+
+請提供這個組件的完整 React Code (使用 Functional Component 和 Hooks)。
+
+6. 本地測試步驟 (Local Testing)
+在推上 Cloud Run 之前，請確保本地跑得通。
+   1. 啟動 Redis:
+docker run -d -p 6379:6379 redis
+
+   2. 啟動 Worker (Terminal 1):
+cd ai-worker
+export REDIS_URL="redis://localhost:6379/0"
+export GOOGLE_APPLICATION_CREDENTIALS="../gcp-key.json"
+export BUCKET_NAME="vocaltune-temp-storage"
+celery -A tasks worker --loglevel=info --pool=solo
+
+   3. 啟動 API (Terminal 2):
+cd backend-api
+export REDIS_URL="redis://localhost:6379/0"
+uvicorn main:app --reload --port 8000
+
+   4. 啟動 Frontend (Terminal 3):
+cd frontend-client
+npm run dev
+
+7. Cloud Run 部署腳本 (Deployment)
+確認本地無誤後，使用以下指令部署。
+部署 Backend API
+gcloud run deploy vocaltune-api \
+ --source ./backend-api \
+ --region us-west1 \
+ --allow-unauthenticated \
+ --set-env-vars REDIS_URL="redis://<YOUR_REDIS_IP>:6379"
+
+部署 AI Worker (注意資源設定)
+Worker 需要較大的記憶體與長時間的 Timeout。
+gcloud run deploy vocaltune-worker \
+ --source ./ai-worker \
+ --region us-west1 \
+ --no-allow-unauthenticated \
+ --memory 4Gi \
+ --cpu 2 \
+ --timeout 300s \
+ --set-env-vars REDIS_URL="redis://<YOUR_REDIS_IP>:6379",BUCKET_NAME="vocaltune-temp-storage" \
+ --command "celery" \
+ --args "-A","tasks","worker","--loglevel=info","--concurrency=1"

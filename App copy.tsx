@@ -1,0 +1,291 @@
+import React, { useState } from 'react';
+import { Music, Download, ExternalLink, Layers, Youtube, FileAudio, ArrowRight, AlertTriangle, CheckCircle2, Search, Disc, Loader2, Music2, SplitSquareVertical } from 'lucide-react';
+import { getYouTubeID } from './utils/youtube';
+import { LocalPlayer } from './components/LocalPlayer';
+import { LocalAISeparator } from './components/LocalAISeparator';
+import { Pitcher } from './components/Pitcher';
+
+// API Configuration
+const API_BASE_URL = 'http://localhost:8000';
+
+type TabType = 'source' | 'pitcher' | 'splitter';
+
+export default function App() {
+    // Tabs: 3 modules
+    const [activeTab, setActiveTab] = useState<TabType>('source');
+
+    // URL Input State
+    const [url, setUrl] = useState<string>('');
+    const [videoId, setVideoId] = useState<string | null>(null);
+    const [urlError, setUrlError] = useState<string | null>(null);
+
+    // Download State
+    const [downloadJobId, setDownloadJobId] = useState<string | null>(null);
+    const [downloadStatus, setDownloadStatus] = useState<'idle' | 'downloading' | 'completed' | 'error'>('idle');
+    const [downloadProgress, setDownloadProgress] = useState(0);
+    const [downloadMessage, setDownloadMessage] = useState('');
+    const [downloadedFileUrl, setDownloadedFileUrl] = useState<string | null>(null);
+
+    const handleUrlCheck = (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+
+        if (!url.trim()) {
+            setUrlError('請輸入網址');
+            setVideoId(null);
+            return;
+        }
+
+        const id = getYouTubeID(url);
+        if (id) {
+            setVideoId(id);
+            setUrlError(null);
+        } else {
+            setVideoId(null);
+            setUrlError('無效的 YouTube 連結 (支援 Shorts, Watch, Youtu.be)');
+        }
+    };
+
+    // Direct Download Handler
+    const handleDirectDownload = async () => {
+        if (!videoId) {
+            handleUrlCheck();
+            return;
+        }
+
+        setDownloadStatus('downloading');
+        setDownloadProgress(0);
+        setDownloadMessage('正在啟動下載...');
+        setDownloadedFileUrl(null);
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/download`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ youtube_url: url }),
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.detail || '下載任務建立失敗');
+            }
+
+            const data = await response.json();
+            setDownloadJobId(data.job_id);
+
+            // Poll for status
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusRes = await fetch(`${API_BASE_URL}/api/status/${data.job_id}`);
+                    const statusData = await statusRes.json();
+
+                    setDownloadProgress(statusData.progress || 0);
+                    setDownloadMessage(statusData.message || '');
+
+                    if (statusData.status === 'completed') {
+                        setDownloadStatus('completed');
+                        setDownloadedFileUrl(statusData.file_url);
+                        clearInterval(pollInterval);
+                    } else if (statusData.status === 'error') {
+                        setDownloadStatus('error');
+                        setUrlError(statusData.error || '下載失敗');
+                        clearInterval(pollInterval);
+                    }
+                } catch (err) {
+                    console.error('Status polling error:', err);
+                }
+            }, 1500);
+        } catch (err) {
+            setDownloadStatus('error');
+            setUrlError(err instanceof Error ? err.message : '連線失敗，請確認後端服務已啟動');
+        }
+    };
+
+    // Open external link
+    const openMagicLink = (type: 'vocalremover') => {
+        if (type === 'vocalremover') {
+            window.open('https://vocalremover.org/', '_blank');
+        }
+    };
+
+    // Tab configuration
+    const tabs: { key: TabType; icon: React.ReactNode; label: string; color: string }[] = [
+        { key: 'source', icon: <Download size={18} />, label: '音樂來源', color: 'from-purple-500 to-pink-500' },
+        { key: 'pitcher', icon: <Music2 size={18} />, label: '變調器', color: 'from-blue-500 to-cyan-500' },
+        { key: 'splitter', icon: <SplitSquareVertical size={18} />, label: '分離器', color: 'from-green-500 to-emerald-500' },
+    ];
+
+    return (
+        <div className="min-h-screen bg-brand-900 text-white pb-24 md:pb-12 font-sans selection:bg-brand-accent selection:text-white flex flex-col">
+            {/* Header */}
+            <header className="sticky top-0 z-50 bg-brand-900/95 backdrop-blur-lg border-b border-gray-800 shadow-md">
+                <div className="max-w-md mx-auto px-4 h-16 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-brand-accent rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(139,92,246,0.3)]">
+                            <Music size={18} className="text-white" />
+                        </div>
+                        <h1 className="font-bold text-xl tracking-tight">Vocal<span className="text-brand-glow">Tune</span></h1>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="text-[10px] font-mono text-gray-400 bg-gray-800 px-2 py-1 rounded">v4.0</div>
+                    </div>
+                </div>
+            </header>
+
+            {/* Tab Navigation - 3 Modules */}
+            <div className="sticky top-16 z-40 bg-brand-900/95 backdrop-blur-lg border-b border-gray-800">
+                <div className="max-w-md mx-auto px-2 flex">
+                    {tabs.map((tab) => (
+                        <button
+                            key={tab.key}
+                            onClick={() => setActiveTab(tab.key)}
+                            className={`flex-1 flex flex-col items-center justify-center py-3 transition-all relative ${activeTab === tab.key ? 'text-white' : 'text-gray-500 hover:text-gray-300'
+                                }`}
+                        >
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                                {tab.icon}
+                                <span className="font-bold text-sm">{tab.label}</span>
+                            </div>
+                            {/* Active indicator */}
+                            {activeTab === tab.key && (
+                                <div className={`absolute bottom-0 left-2 right-2 h-0.5 bg-gradient-to-r ${tab.color} rounded-full`} />
+                            )}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <main className="flex-1 max-w-md mx-auto w-full px-4 py-6">
+
+                {/* TAB 1: SOURCE - 音樂來源 */}
+                {activeTab === 'source' && (
+                    <div className="space-y-6 animate-fade-in">
+                        {/* YouTube Input */}
+                        <div className={`bg-brand-800/50 rounded-2xl p-5 border shadow-lg relative overflow-hidden transition-colors duration-300 ${urlError ? 'border-red-500/50 bg-red-900/10' : 'border-gray-700/50'}`}>
+                            <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${urlError ? 'from-red-500 via-orange-500 to-red-500' : 'from-blue-500 via-brand-accent to-pink-500'}`}></div>
+                            <h2 className={`text-lg font-bold mb-4 flex items-center gap-2 ${urlError ? 'text-red-400' : 'text-white'}`}>
+                                {urlError ? <AlertTriangle className="animate-bounce" /> : <Youtube className="text-red-500" />}
+                                {urlError ? '連結無效' : 'YouTube 連結'}
+                            </h2>
+
+                            <form onSubmit={handleUrlCheck} className="relative group">
+                                <input
+                                    type="text"
+                                    value={url}
+                                    onChange={(e) => {
+                                        setUrl(e.target.value);
+                                        if (urlError) setUrlError(null);
+                                        const id = getYouTubeID(e.target.value);
+                                        if (id) setVideoId(id);
+                                    }}
+                                    placeholder="貼上 YouTube 網址..."
+                                    className={`w-full bg-gray-900 border-2 rounded-xl py-3 pl-10 pr-12 text-sm text-white placeholder-gray-500 outline-none transition-all shadow-inner ${urlError ? 'border-red-500' : 'border-gray-700 focus:border-brand-accent'}`}
+                                />
+                                <Search className="absolute left-3 top-3.5 text-gray-500" size={18} />
+
+                                {videoId && !urlError ? (
+                                    <CheckCircle2 className="absolute right-3 top-3.5 text-green-400 animate-pulse" size={20} />
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={handleUrlCheck}
+                                        className="absolute right-2 top-2 bottom-2 bg-gray-700 text-gray-300 px-3 rounded-lg text-xs font-bold"
+                                    >
+                                        確認
+                                    </button>
+                                )}
+                            </form>
+
+                            {urlError && (
+                                <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 text-xs font-bold flex items-center gap-2">
+                                    <AlertTriangle size={14} />
+                                    {urlError}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Download Button */}
+                        <div className={`transition-all duration-500 ${videoId ? 'opacity-100' : 'opacity-50 grayscale'}`}>
+                            <button
+                                onClick={handleDirectDownload}
+                                disabled={!videoId || downloadStatus === 'downloading'}
+                                className="w-full group relative flex items-center justify-between bg-gradient-to-r from-brand-accent to-purple-600 hover:from-purple-500 hover:to-pink-500 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed p-5 rounded-2xl transition-all shadow-lg text-left"
+                            >
+                                <div className="flex items-center gap-4">
+                                    <div className="w-14 h-14 rounded-xl bg-white/20 text-white flex items-center justify-center font-bold text-xl shadow-lg">
+                                        {downloadStatus === 'downloading' ? (
+                                            <Loader2 size={28} className="animate-spin" />
+                                        ) : downloadStatus === 'completed' ? (
+                                            <CheckCircle2 size={28} />
+                                        ) : (
+                                            <Download size={28} />
+                                        )}
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-white text-xl">
+                                            {downloadStatus === 'downloading' ? '下載中...' :
+                                                downloadStatus === 'completed' ? '下載完成！' :
+                                                    '下載音訊'}
+                                        </div>
+                                        <div className="text-sm text-white/80">
+                                            {downloadStatus === 'downloading' ? downloadMessage :
+                                                downloadStatus === 'completed' ? '可前往變調器或分離器' :
+                                                    '一鍵下載 MP3'}
+                                        </div>
+                                    </div>
+                                </div>
+                            </button>
+
+                            {/* Progress Bar */}
+                            {downloadStatus === 'downloading' && (
+                                <div className="mt-3">
+                                    <div className="relative h-2 bg-gray-700 rounded-full overflow-hidden">
+                                        <div
+                                            className="absolute h-full bg-gradient-to-r from-brand-accent to-pink-500 transition-all duration-500"
+                                            style={{ width: `${downloadProgress}%` }}
+                                        />
+                                    </div>
+                                    <div className="text-right text-xs text-gray-400 mt-1">{downloadProgress}%</div>
+                                </div>
+                            )}
+
+                            {/* Quick Nav after download */}
+                            {downloadStatus === 'completed' && (
+                                <div className="mt-6 flex gap-2">
+                                    <button
+                                        onClick={() => setActiveTab('pitcher')}
+                                        className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-bold transition-all"
+                                    >
+                                        <Music2 size={18} /> 變調器
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('splitter')}
+                                        className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold transition-all"
+                                    >
+                                        <SplitSquareVertical size={18} /> 分離器
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* TAB 2: PITCHER - 變調器 */}
+                {activeTab === 'pitcher' && (
+                    <div className="animate-fade-in">
+                        <LocalPlayer />
+                    </div>
+                )}
+
+                {/* TAB 3: SPLITTER - 分離器 */}
+                {activeTab === 'splitter' && (
+                    <div className="animate-fade-in space-y-4">
+                        <LocalAISeparator
+                            audioFileUrl={downloadedFileUrl ? `${API_BASE_URL}${downloadedFileUrl}` : undefined}
+                        />
+                    </div>
+                )}
+
+            </main>
+        </div>
+    );
+}
