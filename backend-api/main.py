@@ -74,6 +74,15 @@ class JobStatusResponse(BaseModel):
 class AnalyzeRequest(BaseModel):
     file_path: str
 
+class TranscribeRequest(BaseModel):
+    job_id: str  # Original separation job ID
+    stem: str    # Which stem to transcribe (vocals, piano, guitar, etc.)
+
+class TranscribeResponse(BaseModel):
+    task_id: str
+    status: str
+    message: str
+
 # ============== Helper Functions ==============
 
 @app.post("/api/analyze-bpm")
@@ -528,6 +537,108 @@ async def upload_audio(file: UploadFile = File(...)):
         "job_id": job_id,
         "file_url": f"/files/downloads/{job_id}{file_ext}",
         "message": "檔案上傳成功"
+    }
+
+# ============== Transcription (Audio to MIDI) ==============
+
+@app.post("/api/transcribe", response_model=TranscribeResponse)
+async def transcribe_audio(request: TranscribeRequest, background_tasks: BackgroundTasks):
+    """
+    音訊轉 MIDI (Audio to MIDI Transcription)
+    使用 Basic Pitch 將音軌轉換為 MIDI 檔案
+    """
+    from celery import Celery
+    import os
+    
+    VALID_STEMS = ["vocals", "drums", "bass", "guitar", "piano", "other", "accompaniment", "original"]
+    
+    if request.stem not in VALID_STEMS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"無效的音軌名稱: {request.stem}. 有效選項: {', '.join(VALID_STEMS)}"
+        )
+    
+    # Generate transcription job ID
+    transcribe_job_id = str(uuid.uuid4())[:8]
+    
+    update_job_status(transcribe_job_id, {
+        "status": "pending",
+        "progress": 0,
+        "message": "採譜任務已建立..."
+    })
+    
+    # Check if we have a Celery/Redis connection for cloud mode
+    redis_url = os.getenv("REDIS_URL")
+    
+    if redis_url:
+        # Cloud mode: dispatch to Celery worker
+        celery_app = Celery("tasks", broker=redis_url, backend=redis_url)
+        celery_app.send_task(
+            "tasks.transcribe_audio",
+            args=[request.job_id, request.stem, transcribe_job_id],
+            queue="music_separation"
+        )
+    else:
+        # Local mode: run in background (simplified, no Basic Pitch locally)
+        # For local testing, we'll just simulate the process
+        async def local_transcribe():
+            import asyncio
+            update_job_status(transcribe_job_id, {
+                "status": "transcribing",
+                "progress": 50,
+                "message": "本地模式：模擬採譜中..."
+            })
+            await asyncio.sleep(2)
+            update_job_status(transcribe_job_id, {
+                "status": "completed",
+                "progress": 100,
+                "message": "採譜完成！(本地模式示範)",
+                "midi_url": f"/files/separated/{request.job_id}/{request.stem}.mid"
+            })
+        
+        background_tasks.add_task(local_transcribe)
+    
+    return TranscribeResponse(
+        task_id=transcribe_job_id,
+        status="pending",
+        message="採譜任務已開始"
+    )
+
+@app.get("/api/transcribe/status/{task_id}")
+async def get_transcribe_status(task_id: str):
+    """
+    查詢採譜任務狀態
+    """
+    import os
+    import redis
+    import json
+    
+    redis_url = os.getenv("REDIS_URL")
+    
+    if redis_url:
+        # Cloud mode: check Redis
+        try:
+            redis_client = redis.from_url(redis_url, decode_responses=True)
+            status_key = f"job:{task_id}:status"
+            status_data = redis_client.get(status_key)
+            
+            if status_data:
+                return json.loads(status_data)
+        except Exception as e:
+            print(f"Redis error: {e}")
+    
+    # Fallback to in-memory store
+    status = get_job_status(task_id)
+    
+    if status.get("status") == "unknown":
+        raise HTTPException(status_code=404, detail="找不到此任務")
+    
+    return {
+        "task_id": task_id,
+        "status": status.get("status", "unknown"),
+        "progress": status.get("progress", 0),
+        "message": status.get("message", ""),
+        "midi_url": status.get("midi_url")
     }
 
 # ============== Run Server ==============

@@ -2,3 +2,5 @@ celery==5.3.6
 redis==5.0.1
 google-cloud-storage==2.14.0
 ffmpeg-python==0.2.0
+basic-pitch
+tensorflow-cpu>=2.13.0

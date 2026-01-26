@@ -370,6 +370,106 @@ def mix_tracks(self, job_id: str, volumes: dict, mix_job_id: str):
         raise
 
 
+@app.task(name="tasks.transcribe_audio", bind=True)
+def transcribe_audio(self, job_id: str, stem_name: str, transcribe_job_id: str):
+    """
+    音訊轉 MIDI 任務 (Audio to MIDI Transcription)
+    使用 Spotify Basic Pitch 將音軌轉換為 MIDI
+    
+    1. 驗證 stem_name
+    2. 從 GCS 下載該音軌
+    3. 使用 Basic Pitch 推論
+    4. 上傳 MIDI 到 GCS
+    5. 回傳 Signed URL
+    """
+    from basic_pitch.inference import predict_and_save
+    from basic_pitch import ICASSP_2022_MODEL_PATH
+    
+    VALID_STEMS = ["vocals", "drums", "bass", "guitar", "piano", "other", "accompaniment", "original"]
+    
+    try:
+        # Step 0: Validate stem name
+        if stem_name not in VALID_STEMS:
+            raise ValueError(f"無效的音軌名稱: {stem_name}. 有效選項: {VALID_STEMS}")
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            
+            # Step 1: Download audio from GCS
+            update_status(transcribe_job_id, {
+                "status": "downloading",
+                "progress": 10,
+                "message": f"正在下載 {stem_name} 音軌..."
+            })
+            
+            # Determine file extension (wav for separated, mp3 for original)
+            file_ext = "mp3" if stem_name == "original" else "wav"
+            gcs_path = f"jobs/{job_id}/{stem_name}.{file_ext}"
+            local_audio_path = tmpdir / f"{stem_name}.{file_ext}"
+            
+            download_from_gcs(gcs_path, str(local_audio_path))
+            
+            if not local_audio_path.exists():
+                raise Exception(f"無法下載音軌: {gcs_path}")
+            
+            # Step 2: Run Basic Pitch inference
+            update_status(transcribe_job_id, {
+                "status": "transcribing",
+                "progress": 30,
+                "message": "AI 正在分析音高與節奏，這可能需要 1-2 分鐘..."
+            })
+            
+            output_dir = tmpdir / "midi_output"
+            output_dir.mkdir(exist_ok=True)
+            
+            # Run prediction
+            predict_and_save(
+                audio_path_list=[str(local_audio_path)],
+                output_directory=str(output_dir),
+                save_midi=True,
+                sonify_midi=False,
+                save_model_outputs=False,
+                save_notes=False,
+                model_or_model_path=ICASSP_2022_MODEL_PATH,
+            )
+            
+            # Find the generated MIDI file
+            midi_files = list(output_dir.glob("*.mid"))
+            if not midi_files:
+                raise Exception("Basic Pitch 未能生成 MIDI 檔案")
+            
+            midi_file = midi_files[0]
+            
+            # Step 3: Upload MIDI to GCS
+            update_status(transcribe_job_id, {
+                "status": "uploading",
+                "progress": 80,
+                "message": "正在上傳 MIDI 檔案..."
+            })
+            
+            gcs_midi_path = f"jobs/{job_id}/{stem_name}.mid"
+            midi_url = upload_to_gcs(str(midi_file), gcs_midi_path)
+            
+            # Step 4: Update final status
+            update_status(transcribe_job_id, {
+                "status": "completed",
+                "progress": 100,
+                "message": "採譜完成！",
+                "midi_url": midi_url
+            })
+            
+            return {"transcribe_job_id": transcribe_job_id, "midi_url": midi_url}
+            
+    except Exception as e:
+        update_status(transcribe_job_id, {
+            "status": "error",
+            "progress": 0,
+            "error": str(e),
+            "message": f"採譜失敗: {str(e)}"
+        })
+        raise
+
+
 # For local testing
 if __name__ == "__main__":
     print("Use: celery -A tasks worker --loglevel=info --pool=solo")

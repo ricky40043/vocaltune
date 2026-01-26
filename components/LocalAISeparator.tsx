@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     Play, Pause, Loader2, AlertCircle, CheckCircle2,
-    Layers, Download, Volume2, Upload
+    Layers, Download, Volume2, Upload, Music
 } from 'lucide-react';
 import { WaveformTrack } from './WaveformTrack';
 
@@ -40,6 +40,9 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
+
+    // MIDI conversion state: { trackName: { status: 'idle' | 'loading' | 'completed', url?: string } }
+    const [midiStatus, setMidiStatus] = useState<Record<string, { status: string; url?: string }>>({});
 
     // ... (Effect logic) ...
 
@@ -377,6 +380,64 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
         setError(null);
     };
 
+    // Handle MIDI transcription
+    const handleTranscribe = async (stemName: string) => {
+        if (!jobId) return;
+
+        // Set loading state
+        setMidiStatus(prev => ({
+            ...prev,
+            [stemName]: { status: 'loading' }
+        }));
+
+        try {
+            // Start transcription
+            const response = await fetch(`${API_BASE_URL}/api/transcribe`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ job_id: jobId, stem: stemName }),
+            });
+
+            if (!response.ok) {
+                throw new Error('採譜請求失敗');
+            }
+
+            const data = await response.json();
+            const taskId = data.task_id;
+
+            // Poll for status
+            const pollStatus = async () => {
+                const statusRes = await fetch(`${API_BASE_URL}/api/transcribe/status/${taskId}`);
+                const statusData = await statusRes.json();
+
+                if (statusData.status === 'completed' && statusData.midi_url) {
+                    setMidiStatus(prev => ({
+                        ...prev,
+                        [stemName]: { status: 'completed', url: statusData.midi_url }
+                    }));
+                } else if (statusData.status === 'error') {
+                    setMidiStatus(prev => ({
+                        ...prev,
+                        [stemName]: { status: 'idle' }
+                    }));
+                    setError(statusData.message || '採譜失敗');
+                } else {
+                    // Still processing, poll again
+                    setTimeout(pollStatus, 2000);
+                }
+            };
+
+            pollStatus();
+
+        } catch (err) {
+            setMidiStatus(prev => ({
+                ...prev,
+                [stemName]: { status: 'idle' }
+            }));
+            setError(err instanceof Error ? err.message : '採譜失敗');
+        }
+    };
+
     return (
         <div className="space-y-4">
             {/* Header */}
@@ -521,6 +582,45 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                                 <Download size={14} /> {name}.wav
                             </a>
                         ))}
+                    </div>
+
+                    {/* MIDI Conversion Section */}
+                    <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-amber-900/20 to-orange-900/20 border border-amber-500/30">
+                        <div className="flex items-center gap-2 text-amber-300 mb-3">
+                            <Music size={18} />
+                            <span className="font-bold text-sm">轉換為 MIDI (採譜)</span>
+                        </div>
+                        <p className="text-xs text-gray-400 mb-3">將音軌轉換為 MIDI 檔案，可匯入 MuseScore 或簡譜軟體</p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                            {Object.entries(tracks)
+                                .filter(([name]) => ['piano', 'guitar', 'vocals', 'bass'].includes(name))
+                                .map(([name]) => {
+                                    const midiState = midiStatus[name] || { status: 'idle' };
+                                    return (
+                                        <button
+                                            key={`midi-${name}`}
+                                            onClick={() => handleTranscribe(name)}
+                                            disabled={midiState.status === 'loading'}
+                                            className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-medium transition-all ${midiState.status === 'completed'
+                                                ? 'bg-green-600 hover:bg-green-500 text-white'
+                                                : midiState.status === 'loading'
+                                                    ? 'bg-amber-700/50 text-amber-300 cursor-wait'
+                                                    : 'bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/30'
+                                                }`}
+                                        >
+                                            {midiState.status === 'loading' ? (
+                                                <><Loader2 size={14} className="animate-spin" /> 採譜中...</>
+                                            ) : midiState.status === 'completed' ? (
+                                                <a href={midiState.url} download={`${name}.mid`} className="flex items-center gap-2">
+                                                    <Download size={14} /> {name}.mid
+                                                </a>
+                                            ) : (
+                                                <><Music size={14} /> {name} 轉 MIDI</>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                        </div>
                     </div>
                 </div>
             )}
