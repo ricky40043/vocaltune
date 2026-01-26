@@ -25,6 +25,7 @@ dist-ssr
 
 # Project specific
 backend-api/venv/
+backend-api/separated/
 downloads/
 separated_audio/
 .env

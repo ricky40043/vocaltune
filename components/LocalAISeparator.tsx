@@ -380,14 +380,15 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
     return (
         <div className="space-y-4">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-purple-900/40 to-pink-900/40 border border-purple-500/30">
+            <div className="flex items-center justify-between p-4 md:p-5 rounded-xl bg-gradient-to-r from-purple-900/40 to-pink-900/40 border border-purple-500/30">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                        <Layers size={20} className="text-purple-400" />
+                    <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                        <Layers size={20} className="text-purple-400 md:hidden" />
+                        <Layers size={24} className="text-purple-400 hidden md:block" />
                     </div>
                     <div>
-                        <div className="font-bold text-white">AI 音軌分離</div>
-                        <div className="text-xs text-purple-300">使用 AI 將音樂分離成獨立音軌</div>
+                        <div className="font-bold text-white md:text-lg">AI 音軌分離</div>
+                        <div className="text-xs md:text-sm text-purple-300">使用 AI 將音樂分離成獨立音軌</div>
                     </div>
                 </div>
 
@@ -395,7 +396,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                     <button
                         onClick={handleStartSeparation}
                         disabled={!effectiveFileUrl}
-                        className="bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white px-5 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2"
+                        className="bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white px-5 py-2.5 md:px-6 md:py-3 rounded-xl font-bold transition-all flex items-center gap-2"
                     >
                         <Layers size={16} /> 開始分離
                     </button>
@@ -459,17 +460,17 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                     </div>
 
                     {/* Playback Controls */}
-                    <div className="bg-gray-800/60 rounded-xl p-4 border border-gray-700/50">
-                        <div className="flex items-center gap-4">
+                    <div className="bg-gray-800/60 rounded-xl p-4 md:p-5 border border-gray-700/50">
+                        <div className="flex items-center gap-4 md:gap-6">
                             <button
                                 onClick={togglePlay}
-                                className="w-12 h-12 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center shadow-lg transition-all active:scale-95"
+                                className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center shadow-lg transition-all active:scale-95"
                             >
                                 {isPlaying ? <Pause size={20} fill="white" /> : <Play size={20} fill="white" className="ml-0.5" />}
                             </button>
 
                             <div className="flex-1">
-                                <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                <div className="flex justify-between text-xs md:text-sm text-gray-400 mb-1">
                                     <span>{formatTime(currentTime)}</span>
                                     <span>{formatTime(duration)}</span>
                                 </div>
@@ -509,13 +510,13 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                     </div>
 
                     {/* Download Individual Tracks */}
-                    <div className="grid grid-cols-2 gap-2 mt-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mt-4">
                         {Object.entries(tracks).map(([name, track]: [string, TrackState]) => (
                             <a
                                 key={name}
                                 href={track.url}
                                 download={`${name}.wav`}
-                                className="flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium transition-all"
+                                className="flex items-center justify-center gap-2 py-2 md:py-3 px-3 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium transition-all"
                             >
                                 <Download size={14} /> {name}.wav
                             </a>
@@ -526,7 +527,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
 
             {/* No file selected - show upload button */}
             {status === 'idle' && !effectiveFileUrl && (
-                <div className="p-4 rounded-lg bg-gray-800/40 border border-dashed border-gray-600 text-center">
+                <div className="p-4 md:p-6 rounded-lg bg-gray-800/40 border border-dashed border-gray-600 text-center">
                     <input
                         type="file"
                         ref={fileInputRef}
@@ -545,14 +546,14 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                             <><Upload size={16} /> 點擊上傳音訊檔案</>
                         )}
                     </button>
-                    <p className="text-xs text-gray-500 mt-2">或從 YouTube 下載音樂</p>
+                    <p className="text-xs md:text-sm text-gray-500 mt-2">或從 YouTube 下載音樂</p>
                 </div>
             )}
 
             {/* File selected - show file info */}
             {status === 'idle' && effectiveFileUrl && (
-                <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-green-400 text-sm">
+                <div className="p-3 md:p-4 rounded-lg bg-green-500/10 border border-green-500/30 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-green-400 text-sm md:text-base">
                         <CheckCircle2 size={16} />
                         <span className="font-bold">{localFileName || '已選擇檔案'}</span>
                     </div>
@@ -576,3 +577,5 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
 };
 
 export default LocalAISeparator;
+
+

@@ -501,35 +501,36 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   return (
     <div className="space-y-4 animate-fade-in pb-12">
       {/* Reset Header */}
-      <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-blue-900/40 to-cyan-900/40 border border-blue-500/30">
+      <div className="flex items-center justify-between p-4 md:p-5 rounded-xl bg-gradient-to-r from-blue-900/40 to-cyan-900/40 border border-blue-500/30">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
-            <Sliders size={20} className="text-blue-400" />
+          <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-blue-500/20 flex items-center justify-center">
+            <Sliders size={20} className="text-blue-400 md:hidden" />
+            <Sliders size={24} className="text-blue-400 hidden md:block" />
           </div>
           <div>
-            <div className="font-bold text-white">變調器</div>
-            <div className="text-xs text-blue-300">調整速度、音調、循環</div>
+            <div className="font-bold text-white md:text-lg">變調器</div>
+            <div className="text-xs md:text-sm text-blue-300">調整速度、音調、循環</div>
           </div>
         </div>
         <button
           onClick={handleReset}
-          className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors"
+          className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors"
         >
           <RotateCcw size={16} /> 重置
         </button>
       </div>
 
-      <div onClick={() => fileInputRef.current?.click()} className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all relative overflow-hidden group ${isLoaded ? 'border-brand-accent bg-brand-800/50' : 'border-gray-600 hover:border-brand-glow hover:bg-gray-800'}`}>
+      <div onClick={() => fileInputRef.current?.click()} className={`border-2 border-dashed rounded-2xl p-8 md:p-10 text-center cursor-pointer transition-all relative overflow-hidden group ${isLoaded ? 'border-brand-accent bg-brand-800/50' : 'border-gray-600 hover:border-brand-glow hover:bg-gray-800'}`}>
         <input ref={fileInputRef} type="file" accept="audio/*" onChange={handleFileChange} className="hidden" />
         {isLoading ? (
-          <div className="flex flex-col items-center text-brand-glow"><Loader2 className="animate-spin mb-2" size={32} /><span>音訊處理中...</span></div>
+          <div className="flex flex-col items-center text-brand-glow"><Loader2 className="animate-spin mb-2" size={32} /><span className="md:text-lg">音訊處理中...</span></div>
         ) : isLoaded ? (
           <div className="relative z-10 flex flex-col items-center">
-            <Music size={32} className="text-brand-accent mb-2" /><span className="font-bold text-white truncate max-w-[200px]">{fileName}</span>
-            <span className="text-xs text-green-400 mt-1 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>準備就緒</span>
+            <Music size={32} className="text-brand-accent mb-2 md:w-10 md:h-10" /><span className="font-bold text-white truncate max-w-[200px] md:max-w-[400px] md:text-lg">{fileName}</span>
+            <span className="text-xs md:text-sm text-green-400 mt-1 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>準備就緒</span>
           </div>
         ) : (
-          <div className="flex flex-col items-center text-gray-400"><Upload size={32} className="mb-2" /><span className="font-bold">匯入音樂 (MP3/WAV)</span></div>
+          <div className="flex flex-col items-center text-gray-400"><Upload size={32} className="mb-2 md:w-10 md:h-10" /><span className="font-bold md:text-lg">匯入音樂 (MP3/WAV)</span></div>
         )}
       </div>
 
@@ -537,7 +538,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         {/* Removed Visualizer Block Here */}
 
         {/* Progress Bar & Seek */}
-        <div className="bg-brand-800/60 p-4 rounded-2xl border border-gray-700/50 space-y-3 mb-6">
+        <div className="bg-brand-800/60 p-4 md:p-5 rounded-2xl border border-gray-700/50 space-y-3 mb-6">
           <div className="flex justify-between text-[10px] font-mono text-gray-400">
             <span>{formatTime(currentTime)}</span>
             <span>{formatTime(duration)}</span>
@@ -576,27 +577,28 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
           </div>
         </div>
 
-        <div className="flex justify-center items-center gap-6 mb-8">
-          <button onClick={toggleMic} className={`flex flex-col items-center justify-center w-16 h-16 rounded-2xl transition-all border shadow-lg ${micEnabled ? 'bg-red-500/20 border-red-500 text-red-400' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'}`}>
+        <div className="flex justify-center items-center gap-6 md:gap-10 mb-8">
+          <button onClick={toggleMic} className={`flex flex-col items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-2xl transition-all border shadow-lg ${micEnabled ? 'bg-red-500/20 border-red-500 text-red-400' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'}`}>
             {micEnabled ? <Mic size={24} /> : <MicOff size={24} />}
-            <span className="text-[10px] mt-1 font-bold">{micEnabled ? 'ON' : 'MIC'}</span>
+            <span className="text-[10px] md:text-xs mt-1 font-bold">{micEnabled ? 'ON' : 'MIC'}</span>
           </button>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 md:gap-6">
             <button onClick={() => handleSeek(-5)} className="text-gray-400 hover:text-white flex flex-col items-center p-2"><RotateCcw size={20} /><span className="text-[10px] font-mono mt-1">-5s</span></button>
-            <button onClick={togglePlay} disabled={!isLoaded} className={`flex items-center justify-center w-24 h-24 rounded-full shadow-[0_0_30px_rgba(139,92,246,0.4)] active:scale-95 transition-all text-white border-4 border-brand-900 ${isPlaying ? 'bg-brand-accent animate-pulse-slow' : isLoaded ? 'bg-brand-accent hover:bg-violet-500' : 'bg-gray-700 cursor-not-allowed'}`}>
+            <button onClick={togglePlay} disabled={!isLoaded} className={`flex items-center justify-center w-24 h-24 md:w-28 md:h-28 rounded-full shadow-[0_0_30px_rgba(139,92,246,0.4)] active:scale-95 transition-all text-white border-4 border-brand-900 ${isPlaying ? 'bg-brand-accent animate-pulse-slow' : isLoaded ? 'bg-brand-accent hover:bg-violet-500' : 'bg-gray-700 cursor-not-allowed'}`}>
               {isPlaying ? <Pause size={40} fill="currentColor" /> : <Play size={40} fill="currentColor" className="ml-1" />}
             </button>
             <button onClick={() => handleSeek(5)} className="text-gray-400 hover:text-white flex flex-col items-center p-2 transform scale-x-[-1]"><RotateCcw size={20} /><span className="text-[10px] font-mono mt-1 transform scale-x-[-1]">+5s</span></button>
           </div>
 
-          <div className="w-16 h-16" /> {/* Spacer for balance */}
+          <div className="w-16 h-16 md:w-20 md:h-20" /> {/* Spacer for balance */}
         </div>
 
         <div className="space-y-6">
-          <div className="space-y-4">
+          {/* Desktop: Two column layout for controls */}
+          <div className="md:grid md:grid-cols-2 md:gap-6 space-y-4 md:space-y-0">
             {/* Key / Pitch Section */}
-            <div className="bg-brand-800/40 border border-brand-700/30 rounded-2xl p-4">
+            <div className="bg-brand-800/40 border border-brand-700/30 rounded-2xl p-4 md:p-5">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2 text-pink-300"><Music size={18} /><span className="font-bold text-sm">調性推算 (Key)</span></div>
                 <div className="flex items-center gap-2 bg-gray-800/80 px-2 py-1 rounded-lg border border-gray-700">
@@ -657,7 +659,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
             </div>
 
             {/* Speed & BPM Section */}
-            <div className="bg-brand-800/40 border border-brand-700/30 rounded-2xl p-4">
+            <div className="bg-brand-800/40 border border-brand-700/30 rounded-2xl p-4 md:p-5">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2 text-yellow-300"><Zap size={18} /><span className="font-bold text-sm">速度 & BPM</span></div>
                 <div className="flex items-center gap-2">
@@ -699,11 +701,11 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
             </div>
 
 
-            {isExporting && <p className="text-center text-[10px] text-gray-400 animate-pulse">正在渲染升降 Key 與變速效果，請稍候...</p>}
+            {isExporting && <p className="text-center text-[10px] md:text-xs text-gray-400 animate-pulse">正在渲染升降 Key 與變速效果，請稍候...</p>}
 
           </div>
 
-          <div className="bg-brand-800/40 border border-gray-700 rounded-2xl p-4">
+          <div className="bg-brand-800/40 border border-gray-700 rounded-2xl p-4 md:p-5">
             <div className="flex items-center gap-2 text-brand-glow mb-4"><Layers size={18} /><span className="font-bold text-sm">分軌模擬 (EQ Isolation)</span></div>
             <div className="grid grid-cols-3 gap-2">
               <div className="bg-gray-800/50 rounded-xl p-2 pt-4 flex flex-col items-center border border-gray-700/50 relative">
@@ -725,7 +727,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
           </div>
 
           {micEnabled && (
-            <div className="bg-red-900/10 border border-red-500/20 rounded-2xl p-4 space-y-3 animate-fade-in">
+            <div className="bg-red-900/10 border border-red-500/20 rounded-2xl p-4 md:p-5 space-y-3 animate-fade-in">
               <div className="flex items-center gap-2 text-red-300 mb-2"><Sliders size={16} /><span className="font-bold text-sm">麥克風效果 (FX)</span></div>
               <ControlSlider label="人聲音量" value={micVolume} min={0} max={100} step={1} unit="%" onChange={setMicVolume} />
               <ControlSlider label="混響 (Reverb)" value={Math.round(reverbAmount * 100)} min={0} max={100} step={5} unit="%" onChange={(v) => setReverbAmount(v / 100)} />
@@ -738,7 +740,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
           <button
             onClick={handleExport}
             disabled={!isLoaded || isExporting}
-            className={`w-full py-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg ${isExporting ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white active:scale-[0.98]'}`}
+            className={`w-full py-4 md:py-5 rounded-xl font-bold text-sm md:text-base flex items-center justify-center gap-2 transition-all shadow-lg ${isExporting ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white active:scale-[0.98]'}`}
           >
             {isExporting ? (
               <><Loader2 size={20} className="animate-spin" /> 正在處理音訊...</>
