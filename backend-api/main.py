@@ -26,8 +26,10 @@ SEPARATED_DIR = BASE_DIR / "separated"
 DOWNLOADS_DIR.mkdir(exist_ok=True)
 SEPARATED_DIR.mkdir(exist_ok=True)
 
-# Job status storage (in-memory for simplicity, Redis for production)
-job_status_store: dict = {}
+from job_store import job_status_store, update_job_status, get_job_status
+from karaoke import process_karaoke_job, KARAOKE_DIR
+
+# Job status store is now imported from job_store.py
 
 # Logging Configuration
 import logging
@@ -60,6 +62,7 @@ app.add_middleware(
 # Serve static files (downloaded and separated audio)
 app.mount("/files/downloads", StaticFiles(directory=str(DOWNLOADS_DIR)), name="downloads")
 app.mount("/files/separated", StaticFiles(directory=str(SEPARATED_DIR)), name="separated")
+app.mount("/files/karaoke", StaticFiles(directory=str(KARAOKE_DIR)), name="karaoke")
 
 # ============== Request/Response Models ==============
 
@@ -173,16 +176,7 @@ def validate_youtube_url(url: str) -> bool:
     ]
     return any(pattern in url for pattern in valid_patterns)
 
-def update_job_status(job_id: str, status: dict):
-    """更新任務狀態"""
-    logging.info(f"Status Update [{job_id}]: {status.get('status')} - {status.get('progress')}%")
-    job_status_store[job_id] = status
 
-def get_job_status(job_id: str) -> dict:
-    """獲取任務狀態"""
-    status = job_status_store.get(job_id, {"status": "unknown"})
-    # logging.debug(f"Status Query [{job_id}]: {status.get('status')}") # Too noisy?
-    return status
 
 # ============== Download File Endpoint ==============
 
@@ -630,6 +624,38 @@ async def upload_audio(file: UploadFile = File(...)):
         "file_url": f"/files/downloads/{job_id}{file_ext}",
         "message": "檔案上傳成功"
     }
+
+@app.post("/api/karaoke/process", response_model=DownloadResponse)
+async def create_karaoke(request: DownloadRequest, background_tasks: BackgroundTasks):
+    """
+    製作卡拉OK影片 (伴奏版 MV)
+    - 支援 YouTube 下載或本地檔案
+    - 自動分離人聲 + 合成影片
+    """
+    job_id = str(uuid.uuid4())[:8]
+    
+    update_job_status(job_id, {
+        "status": "pending",
+        "progress": 0,
+        "message": "卡拉OK製作任務已建立..."
+    })
+    
+    # Check if URL looks like a local path (starts with /files/) or is a web URL
+    file_path = None
+    youtube_url = None
+    
+    if request.youtube_url.startswith("http"):
+        youtube_url = request.youtube_url
+    else:
+        file_path = request.youtube_url # Reuse field for simplicity, frontend can send path
+        
+    background_tasks.add_task(process_karaoke_job, job_id, youtube_url, file_path)
+    
+    return DownloadResponse(
+        job_id=job_id,
+        status="pending",
+        message="製作任務已開始"
+    )
 
 # ============== Transcription (Audio to MIDI) ==============
 

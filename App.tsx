@@ -4,14 +4,17 @@ import { getYouTubeID } from './utils/youtube';
 import { LocalPlayer } from './components/LocalPlayer';
 import { LocalAISeparator } from './components/LocalAISeparator';
 import { Pitcher } from './components/Pitcher';
+
 import { MidiTranscriber } from './components/MidiTranscriber';
+import { KaraokePlayer } from './components/KaraokePlayer';
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
     ? (import.meta as any).env.VITE_API_URL
     : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
 
-type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber';
+
+type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber' | 'karaoke';
 
 export default function App() {
     // Tabs: 3 modules
@@ -129,6 +132,7 @@ export default function App() {
         { key: 'pitcher', icon: <Music2 size={18} />, label: '變調器', color: 'from-blue-500 to-cyan-500' },
         { key: 'splitter', icon: <SplitSquareVertical size={18} />, label: '分離器', color: 'from-green-500 to-emerald-500' },
         { key: 'transcriber', icon: <FileMusic size={18} />, label: '採譜', color: 'from-amber-500 to-orange-500' },
+        { key: 'karaoke', icon: <Music size={18} />, label: '卡拉OK', color: 'from-purple-600 to-indigo-600' },
     ];
 
     return (
@@ -282,6 +286,12 @@ export default function App() {
                                     >
                                         <SplitSquareVertical size={18} /> 分離器
                                     </button>
+                                    <button
+                                        onClick={() => setActiveTab('karaoke')}
+                                        className="flex-1 flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white py-3 md:py-4 rounded-xl font-bold transition-all"
+                                    >
+                                        <Music size={18} /> 卡拉OK
+                                    </button>
                                 </div>
                             )}
                         </div>
@@ -339,7 +349,15 @@ export default function App() {
                     />
                 </div>
 
-            </main>
-        </div>
+                {/* TAB 5: KARAOKE - 卡拉OK */}
+                <div style={{ display: activeTab === 'karaoke' ? 'block' : 'none' }} className="animate-fade-in space-y-4 max-w-4xl mx-auto">
+                    <KaraokePlayer
+                        youtubeUrl={url && !urlError ? url : undefined}
+                        isActive={activeTab === 'karaoke'}
+                    />
+                </div>
+
+            </main >
+        </div >
     );
 }
