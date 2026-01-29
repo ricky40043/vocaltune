@@ -29,7 +29,7 @@ export SSL_CERT_FILE=$(cd "$BACKEND_DIR" && source venv/bin/activate && python -
 echo "🚀 啟動後端 API (port 8000)..."
 cd "$BACKEND_DIR"
 source venv/bin/activate
-uvicorn main:app --reload --port 8000 &
+uvicorn main:app --reload --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
 # 等待後端啟動
@@ -38,7 +38,38 @@ sleep 2
 # 啟動前端
 echo "🚀 啟動前端 (port 3000)..."
 cd "$PROJECT_DIR"
-npm run dev &
+
+# 嘗試找到 NVM 的 Node 18 路徑
+NODE_BIN=""
+
+if [ -d "$HOME/.nvm/versions/node" ]; then
+    # 尋找 v18 開頭的資料夾
+    NODE_18_DIR=$(find "$HOME/.nvm/versions/node" -maxdepth 1 -name "v18*" | sort -r | head -n 1)
+    if [ -n "$NODE_18_DIR" ]; then
+        NODE_BIN="$NODE_18_DIR/bin/node"
+        echo "✅ Found Node 18 at: $NODE_BIN"
+    fi
+fi
+
+# 如果找不到 NVM 的 Node 18，嘗試使用 PATH 中的 node
+if [ -z "$NODE_BIN" ]; then
+    NODE_BIN=$(command -v node)
+    echo "⚠️  Could not find NVM Node 18, using system node: $NODE_BIN"
+fi
+
+echo "Using Node version: $($NODE_BIN -v)"
+
+# 使用指定的 node 執行 vite js 檔案
+# 通常 vite 的進入點是 node_modules/vite/bin/vite.js
+VITE_BIN="$PROJECT_DIR/node_modules/vite/bin/vite.js"
+
+if [ -f "$VITE_BIN" ]; then
+    "$NODE_BIN" "$VITE_BIN" &
+else
+    # Fallback to npx if direct path fails (less likely to handle version correctly but better than nothing)
+    echo "⚠️  Vite binary not found at $VITE_BIN, falling back to npm run dev"
+    npm run dev &
+fi
 FRONTEND_PID=$!
 
 echo ""

@@ -199,7 +199,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
         // Analyze BPM from backend
         try {
-          const bpmRes = await fetch('http://localhost:8000/api/analyze-bpm', {
+          const bpmRes = await fetch(`http://${window.location.hostname}:8000/api/analyze-bpm`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ file_path: audioFileUrl })
@@ -299,7 +299,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
       // Analyze BPM from upload (Async)
       const formData = new FormData();
       formData.append('file', file);
-      fetch('http://localhost:8000/api/analyze-upload', {
+      fetch(`http://${window.location.hostname}:8000/api/analyze-upload`, {
         method: 'POST',
         body: formData
       }).then(res => res.json()).then(data => {
@@ -530,7 +530,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
             <span className="text-xs md:text-sm text-green-400 mt-1 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>準備就緒</span>
           </div>
         ) : (
-          <div className="flex flex-col items-center text-gray-400"><Upload size={32} className="mb-2 md:w-10 md:h-10" /><span className="font-bold md:text-lg">匯入音樂 (MP3/WAV)</span></div>
+          <div className="flex flex-col items-center text-gray-400"><Upload size={32} className="mb-2 md:w-10 md:h-10" /><span className="font-bold md:text-lg">匯入音訊檔案</span><span className="text-xs text-gray-600 mt-1">Google Drive / iCloud / MP3 / WAV</span></div>
         )}
       </div>
 

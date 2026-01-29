@@ -8,3 +8,7 @@ pydantic==2.5.3
 librosa==0.10.1
 numpy==1.26.3
 soundfile==0.12.1
+yt-dlp>=2025.01.26
+basic-pitch
+tensorflow<2.16
+scikit-learn<=1.5.1

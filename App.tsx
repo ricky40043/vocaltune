@@ -9,7 +9,7 @@ import { MidiTranscriber } from './components/MidiTranscriber';
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
     ? (import.meta as any).env.VITE_API_URL
-    : 'http://localhost:8000';
+    : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
 
 type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber';
 
@@ -87,6 +87,19 @@ export default function App() {
                     if (statusData.status === 'completed') {
                         setDownloadStatus('completed');
                         setDownloadedFileUrl(statusData.file_url);
+
+                        // Client-side download trigger:
+                        // Use dedicated download API that forces browser to download
+                        try {
+                            const downloadUrl = `${API_BASE_URL}/api/download-file/${data.job_id}`;
+                            console.log('Triggering download for:', downloadUrl);
+
+                            // Open in new window to trigger download
+                            window.open(downloadUrl, '_blank');
+                        } catch (e) {
+                            console.error('Auto-download failed:', e);
+                        }
+
                         clearInterval(pollInterval);
                     } else if (statusData.status === 'error') {
                         setDownloadStatus('error');
@@ -229,12 +242,12 @@ export default function App() {
                                     <div>
                                         <div className="font-bold text-white text-xl md:text-2xl">
                                             {downloadStatus === 'downloading' ? '下載中...' :
-                                                downloadStatus === 'completed' ? '下載完成！' :
+                                                downloadStatus === 'completed' ? '下載完成！(點擊儲存)' :
                                                     '下載音訊'}
                                         </div>
                                         <div className="text-sm md:text-base text-white/80">
                                             {downloadStatus === 'downloading' ? downloadMessage :
-                                                downloadStatus === 'completed' ? '可前往變調器或分離器' :
+                                                downloadStatus === 'completed' ? '或前往變調器/分離器' :
                                                     '一鍵下載 MP3'}
                                         </div>
                                     </div>
@@ -275,7 +288,7 @@ export default function App() {
 
                         {/* File Upload Section - Desktop: Right Column */}
                         <div className="md:border-t-0 md:border-l md:border-gray-700/50 md:pl-8 border-t border-gray-700/50 pt-6 md:pt-0">
-                            <h3 className="text-sm md:text-base font-bold text-gray-400 uppercase tracking-wider mb-3 px-1">或上傳本地檔案</h3>
+                            <h3 className="text-sm md:text-base font-bold text-gray-400 uppercase tracking-wider mb-3 px-1">或上傳音訊檔案 (支援雲端硬碟)</h3>
                             <label className="block p-6 md:p-8 rounded-2xl border-2 border-dashed border-gray-600 text-center hover:border-brand-accent transition-colors cursor-pointer bg-gray-800/30 hover:bg-gray-800/50 md:min-h-[200px] md:flex md:flex-col md:items-center md:justify-center">
                                 <input
                                     type="file"
@@ -292,8 +305,8 @@ export default function App() {
                                     }}
                                 />
                                 <Download size={32} className="mx-auto text-gray-500 mb-2 md:w-12 md:h-12" />
-                                <p className="text-gray-400 font-medium md:text-lg">匯入音樂(MP3/WAV)</p>
-                                <p className="text-xs md:text-sm text-gray-600 mt-1">點擊上傳後進入變調器</p>
+                                <p className="text-gray-400 font-medium md:text-lg">匯入音訊檔案</p>
+                                <p className="text-xs md:text-sm text-gray-600 mt-1">可從 裝置資料夾 或 雲端硬碟(iCloud/Drive) 選取</p>
                             </label>
                         </div>
                     </div>
@@ -319,7 +332,9 @@ export default function App() {
 
                 {/* TAB 4: TRANSCRIBER - 採譜 */}
                 <div style={{ display: activeTab === 'transcriber' ? 'block' : 'none' }} className="animate-fade-in space-y-4 max-w-4xl mx-auto">
-                    <MidiTranscriber />
+                    <MidiTranscriber
+                        audioFileUrl={downloadedFileUrl ? (downloadedFileUrl.startsWith('blob:') ? downloadedFileUrl : `${API_BASE_URL}${downloadedFileUrl}`) : undefined}
+                    />
                 </div>
 
             </main>

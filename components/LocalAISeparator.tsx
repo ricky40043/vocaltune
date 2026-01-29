@@ -8,7 +8,7 @@ import { WaveformTrack } from './WaveformTrack';
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
     ? (import.meta as any).env.VITE_API_URL
-    : 'http://localhost:8000';
+    : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
 
 interface TrackState {
     url: string;
@@ -643,7 +643,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                         {isUploading ? (
                             <><Loader2 size={16} className="animate-spin" /> 上傳中...</>
                         ) : (
-                            <><Upload size={16} /> 點擊上傳音訊檔案</>
+                            <><Upload size={16} /> 選擇音訊檔案 (裝置/雲端)</>
                         )}
                     </button>
                     <p className="text-xs md:text-sm text-gray-500 mt-2">或從 YouTube 下載音樂</p>

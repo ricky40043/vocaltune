@@ -29,6 +29,18 @@ SEPARATED_DIR.mkdir(exist_ok=True)
 # Job status storage (in-memory for simplicity, Redis for production)
 job_status_store: dict = {}
 
+# Logging Configuration
+import logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(BASE_DIR / "debug.log"),
+        logging.StreamHandler()
+    ]
+)
+logging.info("Backend Service Started")
+
 # Initialize FastAPI
 app = FastAPI(
     title="VocalTune Pro API",
@@ -39,7 +51,8 @@ app = FastAPI(
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all for local development
+    # allow_origins=["*"],  # Allow all for local development
+    allow_origin_regex="https?://.*",  # Allow any HTTP/HTTPS origin (for LAN access)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -173,6 +186,7 @@ async def upload_file(file: UploadFile = File(...)):
             
         return {
             "status": "success",
+            "job_id": job_id,
             "file_url": f"/files/downloads/{filename}",
             "file_path": str(file_path),
             "filename": file.filename
@@ -193,11 +207,38 @@ def validate_youtube_url(url: str) -> bool:
 
 def update_job_status(job_id: str, status: dict):
     """更新任務狀態"""
+    logging.info(f"Status Update [{job_id}]: {status.get('status')} - {status.get('progress')}%")
     job_status_store[job_id] = status
 
 def get_job_status(job_id: str) -> dict:
     """獲取任務狀態"""
-    return job_status_store.get(job_id, {"status": "unknown"})
+    status = job_status_store.get(job_id, {"status": "unknown"})
+    # logging.debug(f"Status Query [{job_id}]: {status.get('status')}") # Too noisy?
+    return status
+
+# ============== Download File Endpoint ==============
+
+@app.get("/api/download-file/{job_id}")
+async def download_file(job_id: str):
+    """Force browser to download file instead of playing it"""
+    # Find the file with this job_id
+    found_files = list(DOWNLOADS_DIR.glob(f"{job_id}.*"))
+    found_files = [f for f in found_files if f.suffix != '.log']
+    
+    if not found_files:
+        raise HTTPException(status_code=404, detail="檔案不存在")
+    
+    file_path = found_files[0]
+    filename = f"YouTube_Audio_{job_id}{file_path.suffix}"
+    
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type="application/octet-stream",  # Force download
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}"
+        }
+    )
 
 # ============== Background Tasks ==============
 
@@ -212,55 +253,117 @@ async def download_youtube_audio(job_id: str, youtube_url: str):
         
         output_path = DOWNLOADS_DIR / f"{job_id}.mp3"
         
+        # Check for ffmpeg
+        ffmpeg_path = shutil.which("ffmpeg")
+        logging.debug(f"ffmpeg path: {ffmpeg_path}")
+        if not ffmpeg_path:
+            # Fallback for Mac specific paths if not in PATH
+            if os.path.exists("/opt/homebrew/bin/ffmpeg"):
+                ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
+            elif os.path.exists("/usr/local/bin/ffmpeg"):
+                ffmpeg_path = "/usr/local/bin/ffmpeg"
+        
         # Use yt-dlp to download
         cmd = [
             "yt-dlp",
-            "-x",  # Extract audio
-            "--audio-format", "mp3",
-            "--audio-quality", "0",
-            "-o", str(output_path),
+            # Select best audio stream
+            "-f", "bestaudio/best",
+            # CRITICAL: Extract audio and convert to m4a (ensures audio-only output)
+            "-x", "--audio-format", "m4a",
+            # Critical: Prevent downloading entire playlist if URL has &list=...
             "--no-playlist",
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "--referer", "https://www.youtube.com/",
+            # Save to specific path with job_id
+            "-o", str(DOWNLOADS_DIR / f"{job_id}.%(ext)s"),
+            # Use android client (currently working without PO Token)
+            "--extractor-args", "youtube:player_client=android",
+            # Prevent hanging on infinite progress updates
+            "--no-progress",
+            "--no-warnings",
             youtube_url
         ]
         
+        # ffmpeg is required for audio extraction
+        if ffmpeg_path:
+             cmd.extend(["--ffmpeg-location", ffmpeg_path])
+
         update_job_status(job_id, {
             "status": "downloading",
             "progress": 30,
-            "message": "正在下載音訊..."
+            "message": "正在下載並轉換為音訊..."
         })
         
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        logging.info(f"Running download command: {' '.join(cmd)}")
         
-        stdout, stderr = await process.communicate()
+        # Define synchronous wrapper for subprocess.run
+        def run_sync_download():
+            log_file_path = DOWNLOADS_DIR / f"{job_id}.log"
+            logging.info(f"Thread: Starting download for {job_id}")
+            with open(log_file_path, "w") as log_file:
+                # Run blocking subprocess call
+                logging.info(f"Thread: Executing subprocess.run for {job_id}")
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        stdout=log_file,
+                        stderr=subprocess.STDOUT,
+                        stdin=subprocess.DEVNULL,
+                        text=True,
+                        timeout=120 # 2 minutes timeout to prevent infinite hang
+                    )
+                    logging.info(f"Thread: subprocess.run finished with code {result.returncode}")
+                    return result.returncode, ""
+                except subprocess.TimeoutExpired:
+                    logging.error("Thread: Download timed out")
+                    return -1, "Download timed out"
+                except Exception as e:
+                    logging.error(f"Thread: Exception {e}")
+                    return -1, str(e)
+            
+            # Read log (moved outside to simplify logic flow above)
+            # Refetch logic if needed, but simple return is safer for now.
+            
+        # Run in thread pool to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        logging.debug("Offloading download to thread pool...")
+        returncode, full_log = await loop.run_in_executor(None, run_sync_download) # Note: full_log might be simple string now
+        logging.debug(f"Download thread finished with return code: {returncode}")
         
-        if process.returncode != 0:
-            raise Exception(f"下載失敗: {stderr.decode()}")
+        # Re-read log file for details if error
+        log_file_path = DOWNLOADS_DIR / f"{job_id}.log"
+        if os.path.exists(log_file_path):
+             with open(log_file_path, "r") as f:
+                full_log = f.read()
+             if returncode == 0:
+                 os.remove(log_file_path)
+
+        if returncode != 0:
+            logging.error(f"yt-dlp failed. Log output:\n{full_log}")
+            if "Sign in" in full_log:
+                 raise Exception("YouTube 要求驗證 (Bot Detection)。請稍後再試。")
+            raise Exception(f"下載失敗: {full_log[-300:]}") 
         
-        # Find the actual file (yt-dlp may add extensions)
-        mp3_files = list(DOWNLOADS_DIR.glob(f"{job_id}*"))
-        if mp3_files:
-            actual_file = mp3_files[0]
-            # Rename to expected path if needed
-            if actual_file != output_path:
-                actual_file.rename(output_path)
+        logging.info("Download finished successfully")
+
+        # Find the actual file (yt-dlp might have created m4a, webm, or mp4)
+        found_files = list(DOWNLOADS_DIR.glob(f"{job_id}.*"))
+        # Filter out .log files just in case
+        found_files = [f for f in found_files if f.suffix != '.log']
         
-        if not output_path.exists():
-            raise Exception("下載完成但找不到檔案")
-        
-        update_job_status(job_id, {
-            "status": "completed",
-            "progress": 100,
-            "message": "下載完成！",
-            "file_url": f"/files/downloads/{job_id}.mp3"
-        })
+        if found_files:
+            downloaded_file = found_files[0]
+            extension = downloaded_file.suffix.lower()
+            
+            update_job_status(job_id, {
+                "status": "completed",
+                "progress": 100,
+                "message": "下載完成！",
+                "file_url": f"/files/downloads/{job_id}{extension}"
+            })
+        else:
+             raise Exception("下載似乎成功但找不到檔案")
         
     except Exception as e:
+        print(f"EXCEPTION: {str(e)}")
         update_job_status(job_id, {
             "status": "error",
             "progress": 0,
@@ -579,22 +682,138 @@ async def transcribe_audio(request: TranscribeRequest, background_tasks: Backgro
             queue="music_separation"
         )
     else:
-        # Local mode: run in background (simplified, no Basic Pitch locally)
-        # For local testing, we'll just simulate the process
+        # Local mode: run in background
         async def local_transcribe():
             import asyncio
-            update_job_status(transcribe_job_id, {
-                "status": "transcribing",
-                "progress": 50,
-                "message": "本地模式：模擬採譜中..."
-            })
-            await asyncio.sleep(2)
-            update_job_status(transcribe_job_id, {
-                "status": "completed",
-                "progress": 100,
-                "message": "採譜完成！(本地模式示範)",
-                "midi_url": f"/files/separated/{request.job_id}/{request.stem}.mid"
-            })
+            import shutil
+            
+            # Check for dependencies
+            try:
+                from basic_pitch.inference import predict_and_save
+                from basic_pitch import ICASSP_2022_MODEL_PATH
+                import tensorflow as tf
+                has_dependencies = True
+            except ImportError:
+                has_dependencies = False
+                print("Missing basic-pitch or tensorflow. Falling back to simulation.")
+
+            if not has_dependencies:
+                # Simulate processing time (Fallback)
+                update_job_status(transcribe_job_id, {
+                    "status": "transcribing",
+                    "progress": 50,
+                    "message": "本地模式：模擬採譜中 (未安裝 AI 模型)..."
+                })
+                await asyncio.sleep(1)
+                
+                # Create a dummy MIDI file for testing
+                midi_hex = b'\x4D\x54\x68\x64\x00\x00\x00\x06\x00\x00\x00\x01\x00\x60\x4D\x54\x72\x6B\x00\x00\x00\x04\x00\xFF\x2F\x00'
+                
+                output_dir = SEPARATED_DIR / request.job_id
+                output_dir.mkdir(parents=True, exist_ok=True)
+                
+                midi_path = output_dir / f"{request.stem}.mid"
+                with open(midi_path, 'wb') as f:
+                    f.write(midi_hex)
+                
+                update_job_status(transcribe_job_id, {
+                    "status": "completed",
+                    "progress": 100,
+                    "message": "採譜完成！(模擬模式)",
+                    "midi_url": f"/files/separated/{request.job_id}/{request.stem}.mid"
+                })
+                return
+
+            # Real AI Transcription Logic
+            try:
+                update_job_status(transcribe_job_id, {
+                    "status": "transcribing",
+                    "progress": 10,
+                    "message": "AI 正在讀取音訊檔案..."
+                })
+                
+                # 1. Find the source audio file
+                source_file = None
+                
+                # Check Downloads (Direct Upload)
+                for ext in [".mp3", ".wav", ".m4a", ".flac", ".ogg", ".webm"]:
+                    p = DOWNLOADS_DIR / f"{request.job_id}{ext}"
+                    if p.exists():
+                        source_file = p
+                        break
+                
+                # Check Separated Directory (if from separation job)
+                if not source_file:
+                    # Specific stem
+                    p = SEPARATED_DIR / request.job_id / f"{request.stem}.wav"
+                    if p.exists():
+                        source_file = p
+                    else:
+                        # Original
+                        p = SEPARATED_DIR / request.job_id / "original.mp3" 
+                        if p.exists():
+                            source_file = p
+
+                if not source_file:
+                    raise FileNotFoundError("找不到原始音訊檔案")
+
+                # 2. Run Basic Pitch
+                update_job_status(transcribe_job_id, {
+                    "status": "transcribing",
+                    "progress": 30,
+                    "message": "AI 正在分析音高與節奏 (Basic Pitch)..."
+                })
+                
+                output_dir = SEPARATED_DIR / request.job_id
+                output_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Run prediction (blocking call)
+                predict_and_save(
+                    audio_path_list=[str(source_file)],
+                    output_directory=str(output_dir),
+                    save_midi=True,
+                    sonify_midi=False,
+                    save_model_outputs=False,
+                    save_notes=False,
+                    model_or_model_path=ICASSP_2022_MODEL_PATH
+                )
+                
+                # 3. Handle Output
+                # Basic Pitch appends _basic_pitch.mid to the filename
+                # If source is "original.mp3", output is "original_basic_pitch.mid"
+                # If source is "vocals.wav", output is "vocals_basic_pitch.mid"
+                
+                generated_filename = f"{source_file.stem}_basic_pitch.mid"
+                generated_midi = output_dir / generated_filename
+                
+                if not generated_midi.exists():
+                    # Fallback search
+                    generated_midis = list(output_dir.glob("*_basic_pitch.mid"))
+                    if generated_midis:
+                        generated_midi = generated_midis[0]
+                    else:
+                        raise Exception("Basic Pitch 未能生成 MIDI 檔案")
+                
+                # Rename to {stem}.mid for consistency
+                final_midi_path = output_dir / f"{request.stem}.mid"
+                if generated_midi != final_midi_path:
+                    shutil.move(str(generated_midi), str(final_midi_path))
+                
+                update_job_status(transcribe_job_id, {
+                    "status": "completed",
+                    "progress": 100,
+                    "message": "採譜完成！",
+                    "midi_url": f"/files/separated/{request.job_id}/{request.stem}.mid"
+                })
+
+            except Exception as e:
+                print(f"Transcription error: {str(e)}")
+                update_job_status(transcribe_job_id, {
+                    "status": "error",
+                    "progress": 0,
+                    "error": str(e),
+                    "message": f"採譜失敗: {str(e)}"
+                })
         
         background_tasks.add_task(local_transcribe)
     

@@ -4,11 +4,12 @@ import { Music, Loader2, Download, AlertCircle, CheckCircle2, FileAudio, Upload,
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
     ? (import.meta as any).env.VITE_API_URL
-    : 'http://localhost:8000';
+    : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
 
 interface MidiTranscriberProps {
     separationJobId?: string | null;
     availableTracks?: string[];
+    audioFileUrl?: string;
 }
 
 interface TrackMidiState {
@@ -17,7 +18,7 @@ interface TrackMidiState {
     error?: string;
 }
 
-export const MidiTranscriber: React.FC<MidiTranscriberProps> = ({ separationJobId, availableTracks }) => {
+export const MidiTranscriber: React.FC<MidiTranscriberProps> = ({ separationJobId, availableTracks, audioFileUrl }) => {
     // Local file upload state
     const [localFile, setLocalFile] = useState<File | null>(null);
     const [localFileUrl, setLocalFileUrl] = useState<string | null>(null);
@@ -28,8 +29,25 @@ export const MidiTranscriber: React.FC<MidiTranscriberProps> = ({ separationJobI
     const [trackStates, setTrackStates] = useState<Record<string, TrackMidiState>>({});
     const [error, setError] = useState<string | null>(null);
 
+    // Effect: Handle external audio file URL (from App.tsx or props)
+    useEffect(() => {
+        if (audioFileUrl) {
+            // Check if it's a backend URL with job_id
+            const match = audioFileUrl.match(/\/files\/downloads\/([a-zA-Z0-9]+)\./);
+            if (match && match[1]) {
+                setUploadedJobId(match[1]);
+                console.log("MidiTranscriber: Auto-detected job ID from URL:", match[1]);
+            } else if (audioFileUrl.startsWith('blob:')) {
+                // Blob URL (local file) - requires re-upload or different handling
+                // For now, we just set the local URL for display, but user still needs to upload
+                setLocalFileUrl(audioFileUrl);
+            }
+        }
+    }, [audioFileUrl]);
+
+
     // Available stems for transcription
-    const transcribableStems = ['piano', 'guitar', 'vocals', 'bass'];
+    const transcribableStems = ['vocals', 'piano', 'guitar', 'bass', 'drums'];
     const effectiveJobId = separationJobId || uploadedJobId;
     const effectiveTracks = availableTracks || (effectiveJobId ? transcribableStems : []);
 
@@ -42,6 +60,7 @@ export const MidiTranscriber: React.FC<MidiTranscriberProps> = ({ separationJobI
         setLocalFileUrl(URL.createObjectURL(file));
         setIsUploading(true);
         setError(null);
+        setTrackStates({}); // Reset states
 
         try {
             const formData = new FormData();
@@ -64,6 +83,15 @@ export const MidiTranscriber: React.FC<MidiTranscriberProps> = ({ separationJobI
         } finally {
             setIsUploading(false);
         }
+    };
+
+    // Reset flow
+    const handleReset = () => {
+        setUploadedJobId(null);
+        setLocalFile(null);
+        setLocalFileUrl(null);
+        setTrackStates({});
+        setError(null);
     };
 
     // Handle transcription for a specific stem
@@ -129,13 +157,6 @@ export const MidiTranscriber: React.FC<MidiTranscriberProps> = ({ separationJobI
         }
     };
 
-    const stemLabels: Record<string, { label: string; color: string }> = {
-        piano: { label: '🎹 鋼琴', color: 'from-blue-500 to-indigo-600' },
-        guitar: { label: '🎸 吉他', color: 'from-amber-500 to-orange-600' },
-        vocals: { label: '🎤 人聲', color: 'from-pink-500 to-rose-600' },
-        bass: { label: '🎸 貝斯', color: 'from-green-500 to-emerald-600' },
-    };
-
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -167,7 +188,7 @@ export const MidiTranscriber: React.FC<MidiTranscriberProps> = ({ separationJobI
                         選擇音訊來源
                     </h3>
                     <p className="text-sm text-gray-400 mb-4">
-                        請先上傳音訊檔案，或前往「分離器」完成音軌分離後再回來採譜
+                        請先上傳音訊檔案，或從首頁下載 YouTube 音樂
                     </p>
 
                     <label className="block p-8 rounded-2xl border-2 border-dashed border-amber-500/30 text-center hover:border-amber-400 transition-colors cursor-pointer bg-amber-900/10 hover:bg-amber-900/20">
@@ -186,80 +207,96 @@ export const MidiTranscriber: React.FC<MidiTranscriberProps> = ({ separationJobI
                         ) : (
                             <div className="flex flex-col items-center">
                                 <Upload size={40} className="text-amber-400 mb-2" />
-                                <span className="text-amber-300 font-bold">點擊上傳音訊檔案</span>
-                                <span className="text-gray-500 text-sm mt-1">支援 MP3, WAV, FLAC</span>
+                                <span className="text-amber-300 font-bold">匯入音訊檔案</span>
+                                <span className="text-gray-500 text-sm mt-1">支援 .mp3, .wav, .m4a</span>
                             </div>
                         )}
                     </label>
-
-                    {localFile && (
-                        <div className="mt-4 p-3 rounded-lg bg-green-500/10 border border-green-500/30 flex items-center gap-2 text-green-400">
-                            <CheckCircle2 size={16} />
-                            <span className="font-bold">{localFile.name}</span>
-                        </div>
-                    )}
                 </div>
             ) : (
-                /* Transcription Options */
-                <div className="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                /* Transcription Options - Optimized UI */
+                <div className="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50 relative">
+                    {/* Re-import Button */}
+                    <button
+                        onClick={handleReset}
+                        className="absolute top-6 right-6 text-xs text-gray-400 hover:text-white flex items-center gap-1 bg-gray-700/50 hover:bg-gray-700 px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                        <Upload size={12} /> 重新匯入
+                    </button>
+
                     <h3 className="font-bold text-white mb-4 flex items-center gap-2">
                         <Music size={20} className="text-amber-400" />
-                        選擇要採譜的音軌
+                        AI 自動採譜
                     </h3>
-                    <p className="text-sm text-gray-400 mb-6">
-                        點擊下方按鈕，AI 將分析音高與節奏並生成 MIDI 檔案
+                    <p className="text-sm text-gray-400 mb-6 max-w-lg">
+                        AI 將分析音訊並生成 MIDI。如果上次的結果不滿意，可以點擊右上角重新匯入其他檔案。
                     </p>
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {transcribableStems.map((stem) => {
-                            const state = trackStates[stem] || { status: 'idle' };
-                            const { label, color } = stemLabels[stem] || { label: stem, color: 'from-gray-500 to-gray-600' };
+                    <div className="max-w-sm mx-auto">
+                        {(() => {
+                            // Only track 'original' stem state for single-file mode
+                            const state = trackStates['original'] || { status: 'idle' };
 
-                            return (
-                                <div key={stem} className="relative">
-                                    {state.status === 'idle' && (
+                            if (state.status === 'idle' || state.status === 'error') {
+                                return (
+                                    <div className="space-y-4">
                                         <button
-                                            onClick={() => handleTranscribe(stem)}
-                                            className={`w-full p-4 rounded-xl bg-gradient-to-br ${color} hover:opacity-90 transition-all shadow-lg active:scale-95`}
+                                            onClick={() => handleTranscribe('original')}
+                                            className="w-full py-4 px-6 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-bold text-lg shadow-lg shadow-amber-500/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                                         >
-                                            <div className="text-2xl mb-1">{label.split(' ')[0]}</div>
-                                            <div className="font-bold text-white text-sm">{label.split(' ')[1]}</div>
-                                            <div className="text-xs text-white/70 mt-1">轉 MIDI</div>
+                                            <Music size={24} />
+                                            開始 AI 採譜
                                         </button>
-                                    )}
 
-                                    {state.status === 'loading' && (
-                                        <div className={`w-full p-4 rounded-xl bg-gradient-to-br ${color} opacity-70`}>
-                                            <Loader2 size={32} className="animate-spin mx-auto mb-2 text-white" />
-                                            <div className="font-bold text-white text-sm text-center">採譜中...</div>
-                                        </div>
-                                    )}
+                                        {state.status === 'error' && (
+                                            <div className="bg-red-900/30 border border-red-500/30 rounded-xl p-4 text-center animate-fade-in">
+                                                <div className="text-red-300 font-bold mb-1 flex items-center justify-center gap-2">
+                                                    <AlertCircle size={18} /> 轉換失敗
+                                                </div>
+                                                <div className="text-red-200/70 text-sm mb-3">{state.error || "未知錯誤"}</div>
+                                                <button
+                                                    onClick={() => handleTranscribe('original')}
+                                                    className="text-xs bg-red-800/50 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg transition-colors"
+                                                >
+                                                    再試一次
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            }
 
-                                    {state.status === 'completed' && state.url && (
+                            if (state.status === 'loading') {
+                                return (
+                                    <div className="w-full py-8 px-6 rounded-xl bg-gray-800 border border-amber-500/30 text-center">
+                                        <Loader2 size={32} className="mx-auto text-amber-500 animate-spin mb-3" />
+                                        <div className="text-lg font-bold text-white mb-1">正在生成 MIDI...</div>
+                                        <div className="text-sm text-gray-400">AI 正在分析音高與節奏</div>
+                                    </div>
+                                );
+                            }
+
+                            if (state.status === 'completed' && state.url) {
+                                return (
+                                    <div className="space-y-4">
                                         <a
-                                            href={state.url}
-                                            download={`${stem}.mid`}
-                                            className="block w-full p-4 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 hover:opacity-90 transition-all shadow-lg"
+                                            href={`${state.url.startsWith('http') ? '' : API_BASE_URL}${state.url}?t=${Date.now()}`}
+                                            download={`transcript_${effectiveJobId}.mid`}
+                                            className="block w-full py-4 px-6 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-bold text-lg shadow-lg shadow-green-500/20 transition-all text-center flex items-center justify-center gap-2 group"
                                         >
-                                            <Download size={28} className="mx-auto mb-1 text-white" />
-                                            <div className="font-bold text-white text-sm text-center">{label.split(' ')[1]}</div>
-                                            <div className="text-xs text-white/90 mt-1 text-center">下載 MIDI</div>
+                                            <CheckCircle2 size={24} className="group-hover:scale-110 transition-transform" />
+                                            下載 MIDI 檔案
                                         </a>
-                                    )}
-
-                                    {state.status === 'error' && (
                                         <button
-                                            onClick={() => handleTranscribe(stem)}
-                                            className="w-full p-4 rounded-xl bg-red-900/50 border border-red-500/50 hover:bg-red-900/70 transition-all"
+                                            onClick={handleReset}
+                                            className="w-full py-3 px-6 rounded-xl border border-gray-600 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors text-sm"
                                         >
-                                            <AlertCircle size={28} className="mx-auto mb-1 text-red-400" />
-                                            <div className="font-bold text-red-300 text-sm text-center">失敗</div>
-                                            <div className="text-xs text-red-400/70 mt-1 text-center">點擊重試</div>
+                                            採譜下一首
                                         </button>
-                                    )}
-                                </div>
-                            );
-                        })}
+                                    </div>
+                                );
+                            }
+                        })()}
                     </div>
                 </div>
             )}
