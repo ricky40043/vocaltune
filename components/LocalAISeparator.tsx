@@ -3,6 +3,7 @@ import {
     Play, Pause, Loader2, AlertCircle, CheckCircle2,
     Layers, Download, Volume2, Upload, Music
 } from 'lucide-react';
+import * as Tone from 'tone';
 import { WaveformTrack } from './WaveformTrack';
 
 // API Configuration
@@ -19,14 +20,29 @@ interface TrackState {
 interface LocalAISeparatorProps {
     audioFileUrl?: string;  // 來自下載的檔案
     onClose?: () => void;
+    isActive?: boolean;
 }
 
-export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl }) => {
+export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl, isActive = true }) => {
     // Local file state
     const [localFileUrl, setLocalFileUrl] = useState<string | null>(null);
     const [localFileName, setLocalFileName] = useState<string | null>(null);
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Isolation: Background Handling
+    useEffect(() => {
+        if (!isActive) {
+            setIsPlaying(false);
+            if (playersRef.current) {
+                playersRef.current.mute = true;
+            }
+        } else {
+            if (playersRef.current) {
+                playersRef.current.mute = false;
+            }
+        }
+    }, [isActive]);
     // Job state
     const [jobId, setJobId] = useState<string | null>(null);
     const [status, setStatus] = useState<'idle' | 'separating' | 'completed' | 'error'>('idle');
@@ -44,31 +60,9 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
     // MIDI conversion state: { trackName: { status: 'idle' | 'loading' | 'completed', url?: string } }
     const [midiStatus, setMidiStatus] = useState<Record<string, { status: string; url?: string }>>({});
 
-    // ... (Effect logic) ...
-
-    // Update volumes (with Solo Logic)
-    useEffect(() => {
-        Object.entries(tracks).forEach(([name, track]: [string, TrackState]) => {
-            const audio = audioRefs.current[name];
-            if (audio) {
-                let effectiveVolume = track.muted ? 0 : track.volume;
-
-                // Quote Solo Logic
-                if (soloedTrack) {
-                    if (name !== soloedTrack) {
-                        effectiveVolume = 0;
-                    }
-                }
-
-                audio.volume = effectiveVolume;
-                // audio.muted = (effectiveVolume === 0); // Optional: Sync mute state? 
-                // Using volume 0 is safer for smooth transitions than actual Mute property sometimes
-            }
-        });
-    }, [tracks, soloedTrack]);
-
-    // Audio refs
-    const audioRefs = useRef<Record<string, HTMLAudioElement>>({});
+    // Tone.js Refs
+    const playersRef = useRef<Tone.Players | null>(null);
+    const volumeNodesRef = useRef<Record<string, Tone.Volume>>({});
     const animationRef = useRef<number | null>(null);
 
     // 取得可用的檔案 URL (優先本地上傳，其次來自下載)
@@ -107,9 +101,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
 
     // Start separation
     const handleStartSeparation = async () => {
-        console.log(`[DirectLog] handleStartSeparation started at ${new Date().toISOString()}`);
         if (!effectiveFileUrl) {
-            console.log('[DirectLog] No effectiveFileUrl, aborting');
             setError('請先選擇或下載音訊檔案');
             return;
         }
@@ -128,8 +120,6 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                 const blobRes = await fetch(effectiveFileUrl);
                 const blob = await blobRes.blob();
                 const formData = new FormData();
-                // Use a default name if localFileName is missing, though it should be there for local uploads
-                // For shared blob from other tab, we might not have filename.
                 formData.append('file', new File([blob], localFileName || "upload.mp3"));
 
                 const uploadRes = await fetch(`${API_BASE_URL}/api/upload`, {
@@ -152,25 +142,20 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
         setStatusMessage('正在啟動 AI 分離...');
 
         try {
-            console.log(`[DirectLog] Sending POST request to ${API_BASE_URL}/api/separate-local with path: ${filePathToSend}`);
             const response = await fetch(`${API_BASE_URL}/api/separate-local`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ file_path: filePathToSend }),
             });
-            console.log(`[DirectLog] Separation response received: status ${response.status}`);
 
             if (!response.ok) {
                 const data = await response.json();
-                console.error('[DirectLog] Separation request failed:', data);
                 throw new Error(data.detail || '分離任務建立失敗');
             }
 
             const data = await response.json();
-            console.log(`[DirectLog] Separation started successfully, Job ID: ${data.job_id}`);
             setJobId(data.job_id);
         } catch (err) {
-            console.error('[DirectLog] Exception in handleStartSeparation:', err);
             setError(err instanceof Error ? err.message : '連線失敗');
             setStatus('error');
         }
@@ -184,16 +169,13 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
 
         const pollInterval = setInterval(async () => {
             try {
-                // console.log(`[DirectLog] Polling status for Job ID: ${jobId}`); // Commented out to reduce noise
                 const response = await fetch(`${API_BASE_URL}/api/status/${jobId}`);
                 const data = await response.json();
-                // console.log(`[DirectLog] Poll response:`, data);
 
                 setProgress(data.progress || 0);
                 setStatusMessage(data.message || '');
 
                 if (data.status === 'completed' && data.tracks) {
-                    console.log(`[DirectLog] Job completed! Tracks received: ${Object.keys(data.tracks).join(', ')}`);
                     setStatus('completed');
                     // Initialize tracks
                     const initialTracks: Record<string, TrackState> = {};
@@ -207,106 +189,103 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                     setTracks(initialTracks);
                     clearInterval(pollInterval);
                 } else if (data.status === 'error') {
-                    console.error(`[DirectLog] Job failed with error: ${data.error}`);
                     setError(data.error || '處理失敗');
                     setStatus('error');
                     clearInterval(pollInterval);
                 }
             } catch (err) {
-                console.error('[DirectLog] Status polling error:', err);
+                console.error('Status polling error:', err);
             }
         }, 2000);
 
         return () => clearInterval(pollInterval);
     }, [jobId, status]);
 
-    // Initialize audio elements - Only run when status becomes completed
+    // Initialize Tone.Players - Only run when status becomes completed
     useEffect(() => {
-        if (status !== 'completed') return;
+        if (status !== 'completed' || Object.keys(tracks).length === 0) return;
 
-        console.log('[DirectLog] Initializing audio elements...');
-        Object.entries(tracks).forEach(([name, track]: [string, TrackState]) => {
-            if (!audioRefs.current[name]) {
-                const audio = new Audio(track.url);
-                audio.preload = 'auto';
-                audio.crossOrigin = 'anonymous';
-                audioRefs.current[name] = audio;
+        const initTone = async () => {
+            // Cleanup if exists
+            if (playersRef.current) {
+                playersRef.current.dispose();
+                Object.values(volumeNodesRef.current).forEach(n => n.dispose());
+            }
 
-                audio.addEventListener('loadedmetadata', () => {
-                    // Only set duration from the first track or longest track
-                    setDuration(d => d === 0 ? audio.duration : Math.max(d, audio.duration));
+            // Sync Transport
+            Tone.Transport.stop();
+            Tone.Transport.seconds = 0;
+            setCurrentTime(0);
+
+            const urls: Record<string, string> = {};
+            Object.entries(tracks).forEach(([name, track]) => {
+                urls[name] = track.url;
+            });
+
+            console.log('Initializing Tone.Players with:', urls);
+
+            const volNodes: Record<string, Tone.Volume> = {};
+
+            // Create Players
+            const players = new Tone.Players(urls, () => {
+                console.log('All buffers loaded');
+
+                // Configure Routing
+                Object.keys(urls).forEach(name => {
+                    if (players.has(name)) {
+                        const p = players.player(name);
+                        p.sync().start(0); // Sync all to Transport
+
+                        const vol = new Tone.Volume(0).toDestination();
+                        p.disconnect();
+                        p.connect(vol);
+                        volNodes[name] = vol;
+                    }
                 });
-            }
-        });
 
-        // Cleanup function handles destruction when status changes or component unmounts
-        // We attach this cleanup to this effect.
-        // BUT we must ensuring this effect doesn't run on 'tracks' update.
-        // So we dependency is only [status]. 
-        // Note: 'tracks' is used inside. ESLint might complain, but it's intentional to read initial state.
-        // Actually, we can use a ref for tracks initialization if needed, but here we just read it once.
-        return () => {
-            console.log('[DirectLog] Cleaning up audio elements...');
-            Object.values(audioRefs.current).forEach((audio: HTMLAudioElement) => {
-                audio.pause();
-                audio.src = '';
-            });
-            audioRefs.current = {};
-        };
-    }, [status]); // Removed 'tracks' from dependency to prevent re-init on volume change
-
-    // Handle Volume/Mute updates separately
-    useEffect(() => {
-        Object.entries(tracks).forEach(([name, track]: [string, TrackState]) => {
-            const audio = audioRefs.current[name];
-            if (audio) {
-                audio.volume = track.muted ? 0 : track.volume;
-                audio.muted = track.muted;
-            }
-        });
-    }, [tracks]); // Runs whenever volume/mute changes
-
-    // Sync play/pause
-    const togglePlay = useCallback(() => {
-        const audios = Object.values(audioRefs.current) as HTMLAudioElement[];
-
-        if (isPlaying) {
-            audios.forEach((audio: HTMLAudioElement) => audio.pause());
-            if (animationRef.current) {
-                cancelAnimationFrame(animationRef.current);
-            }
-        } else {
-            audios.forEach((audio: HTMLAudioElement) => {
-                audio.currentTime = currentTime;
-            });
-
-            Promise.all(audios.map((audio: HTMLAudioElement) => audio.play())).catch(console.error);
-
-            const updateTime = () => {
-                const firstAudio = audios[0];
-                if (firstAudio) {
-                    setCurrentTime(firstAudio.currentTime);
-
-                    if (firstAudio.currentTime >= firstAudio.duration) {
-                        setIsPlaying(false);
-                        setCurrentTime(0);
-                        return;
+                // Set duration from vocals or first track
+                if (players.has('vocals')) {
+                    setDuration(players.player('vocals').buffer.duration);
+                } else {
+                    // Fallback duration
+                    const first = Object.keys(urls)[0];
+                    if (first && players.has(first)) {
+                        setDuration(players.player(first).buffer.duration);
                     }
                 }
-                animationRef.current = requestAnimationFrame(updateTime);
-            };
-            updateTime();
-        }
 
-        setIsPlaying(!isPlaying);
-    }, [isPlaying, currentTime]);
+                playersRef.current = players;
+                volumeNodesRef.current = volNodes;
 
-    // Update volumes
+                // Init volumes
+                Object.entries(tracks).forEach(([name, track]) => {
+                    const volNode = volNodes[name];
+                    if (volNode) {
+                        const effectiveVol = (track.muted) ? -Infinity : Tone.gainToDb(track.volume);
+                        volNode.volume.value = effectiveVol;
+                    }
+                });
+            });
+        };
+
+        initTone();
+
+        return () => {
+            if (playersRef.current) {
+                playersRef.current.dispose();
+                playersRef.current = null;
+            }
+            Object.values(volumeNodesRef.current).forEach(n => n.dispose());
+            volumeNodesRef.current = {};
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [status]); // Run once when completed
+
     // Update volumes (with Solo Logic)
     useEffect(() => {
         Object.entries(tracks).forEach(([name, track]: [string, TrackState]) => {
-            const audio = audioRefs.current[name];
-            if (audio) {
+            const volNode = volumeNodesRef.current[name];
+            if (volNode) {
                 let effectiveVolume = track.muted ? 0 : track.volume;
 
                 if (soloedTrack) {
@@ -315,10 +294,47 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                     }
                 }
 
-                audio.volume = effectiveVolume;
+                const db = (effectiveVolume === 0) ? -Infinity : Tone.gainToDb(effectiveVolume);
+                volNode.volume.rampTo(db, 0.1);
             }
         });
     }, [tracks, soloedTrack]);
+
+    // Sync play/pause
+    const togglePlay = async () => {
+        if (!playersRef.current) return;
+
+        await Tone.start();
+
+        if (isPlaying) {
+            Tone.Transport.pause();
+            setIsPlaying(false);
+            if (animationRef.current) {
+                cancelAnimationFrame(animationRef.current);
+            }
+        } else {
+            Tone.Transport.start();
+            setIsPlaying(true);
+
+            // Start UI Update Loop
+            const updateTime = () => {
+                setCurrentTime(Tone.Transport.seconds);
+
+                if (Tone.Transport.seconds >= duration && duration > 0) {
+                    Tone.Transport.pause();
+                    Tone.Transport.seconds = 0;
+                    setIsPlaying(false);
+                    setCurrentTime(0);
+                    return;
+                }
+
+                if (Tone.Transport.state === 'started') {
+                    animationRef.current = requestAnimationFrame(updateTime);
+                }
+            };
+            updateTime();
+        }
+    };
 
     // Toggle Solo
     const toggleSolo = (name: string) => {
@@ -328,9 +344,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
     // Handle seek
     const handleSeek = (newTime: number) => {
         setCurrentTime(newTime);
-        Object.values(audioRefs.current).forEach((audio: HTMLAudioElement) => {
-            audio.currentTime = newTime;
-        });
+        Tone.Transport.seconds = newTime;
     };
 
     // Toggle mute
@@ -343,8 +357,12 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
 
     // Handle user interaction on a track (pause master sync)
     const handleInteraction = () => {
+        // Since we are using Tone.js global transport, individual track interaction 
+        // via WaveformTrack (which usually seeks) should just call handleSeek.
+        // But WaveformTrack calls onInteractionStart.
         if (isPlaying) {
-            setIsPlaying(false);
+            // Optional: Pause on interaction?
+            // togglePlay();
         }
     };
 
@@ -365,11 +383,15 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
 
     // Reset
     const handleReset = () => {
-        Object.values(audioRefs.current).forEach((audio: HTMLAudioElement) => {
-            audio.pause();
-            audio.src = '';
-        });
-        audioRefs.current = {};
+        Tone.Transport.stop();
+        Tone.Transport.seconds = 0;
+        if (playersRef.current) {
+            playersRef.current.dispose();
+            playersRef.current = null;
+        }
+        Object.values(volumeNodesRef.current).forEach(n => n.dispose());
+        volumeNodesRef.current = {};
+
         setJobId(null);
         setStatus('idle');
         setProgress(0);
@@ -438,8 +460,27 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
         }
     };
 
+    // Isolation: Cleanup Transport on mount/unmount
+    useEffect(() => {
+        // Stop any previous playback
+        Tone.Transport.stop();
+        Tone.Transport.cancel();
+
+        return () => {
+            // Cleanup on leave
+            Tone.Transport.stop();
+            Tone.Transport.cancel();
+        };
+    }, []);
+
     return (
         <div className="space-y-4">
+            {/* Silent Mode Tip */}
+            <div className="md:hidden px-4 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-2 text-yellow-200 text-xs">
+                <Volume2 size={14} />
+                <span>若沒有聲音，請檢查手機是否開啟靜音模式（側邊開關）</span>
+            </div>
+
             {/* Header */}
             <div className="flex items-center justify-between p-4 md:p-5 rounded-xl bg-gradient-to-r from-purple-900/40 to-pink-900/40 border border-purple-500/30">
                 <div className="flex items-center gap-3">
@@ -448,55 +489,77 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                         <Layers size={24} className="text-purple-400 hidden md:block" />
                     </div>
                     <div>
-                        <div className="font-bold text-white md:text-lg">AI 音軌分離</div>
-                        <div className="text-xs md:text-sm text-purple-300">使用 AI 將音樂分離成獨立音軌</div>
+                        <h2 className="text-lg md:text-xl font-bold text-white">AI 音軌分離</h2>
+                        <p className="text-xs md:text-sm text-gray-400">使用 AI 將音樂分離成獨立音軌</p>
                     </div>
                 </div>
-
-                {status === 'idle' && (
-                    <button
-                        onClick={handleStartSeparation}
-                        disabled={!effectiveFileUrl}
-                        className="bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white px-5 py-2.5 md:px-6 md:py-3 rounded-xl font-bold transition-all flex items-center gap-2"
-                    >
-                        <Layers size={16} /> 開始分離
-                    </button>
-                )}
-
-                {status === 'completed' && (
+                {status !== 'idle' && (
                     <button
                         onClick={handleReset}
-                        className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-xl font-bold transition-all text-sm"
+                        className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs text-white transition-colors"
                     >
-                        重新分離
+                        重置
                     </button>
                 )}
             </div>
 
             {/* Error Message */}
             {error && (
-                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 text-sm flex items-center gap-2">
+                <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg flex items-center gap-2 text-red-200 text-sm">
                     <AlertCircle size={16} />
-                    {error}
+                    <span>{error}</span>
                 </div>
             )}
 
-            {/* Progress */}
-            {status === 'separating' && (
-                <div className="bg-gray-800/60 rounded-xl p-5 border border-gray-700/50">
-                    <div className="flex items-center gap-4 mb-4">
-                        <Loader2 className="animate-spin text-purple-400" size={24} />
-                        <div className="flex-1">
-                            <div className="font-bold text-white">AI 音軌轉換中...</div>
-                            <div className="text-xs text-gray-400 mt-1">
-                                {statusMessage || '正在分析音訊並分離成獨立音軌，這需要 2-5 分鐘...'}
-                            </div>
+            {/* Upload Area */}
+            {status === 'idle' && (
+                <div
+                    className={`border-2 border-dashed rounded-xl p-8 transition-all text-center cursor-pointer ${isUploading ? 'border-purple-500 bg-purple-500/5' : 'border-gray-700 hover:border-purple-500 hover:bg-gray-800/50'
+                        }`}
+                    onClick={() => fileInputRef.current?.click()}
+                >
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileUpload}
+                        className="hidden"
+                        accept="audio/*"
+                    />
+                    <div className="flex flex-col items-center gap-3">
+                        <div className="w-16 h-16 rounded-full bg-gray-800 flex items-center justify-center mb-2">
+                            {isUploading ? (
+                                <Loader2 className="animate-spin text-purple-500" size={32} />
+                            ) : (
+                                <Upload className="text-gray-400" size={32} />
+                            )}
                         </div>
-                        <div className="text-lg font-bold text-purple-400 tabular-nums">
-                            {progress}%
+                        <div className="space-y-1">
+                            <h3 className="text-lg font-bold text-white">
+                                {localFileName || (effectiveFileUrl ? '已選擇音訊檔案' : '點擊上傳或拖放檔案')}
+                            </h3>
+                            <p className="text-sm text-gray-400">
+                                {effectiveFileUrl ? '準備就緒，點擊下方按鈕開始' : '支援 MP3, WAV, FLAC, M4A'}
+                            </p>
                         </div>
+                        {effectiveFileUrl && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleStartSeparation(); }}
+                                className="mt-4 py-2 px-8 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 font-bold text-white shadow-lg hover:scale-105 transition-transform"
+                            >
+                                開始分離
+                            </button>
+                        )}
                     </div>
+                </div>
+            )}
 
+            {/* Progress Bar */}
+            {status === 'separating' && (
+                <div className="space-y-2 p-6 rounded-xl bg-gray-800/50 border border-gray-700">
+                    <div className="flex justify-between text-sm text-gray-300 mb-2">
+                        <span>{statusMessage}</span>
+                        <span>{Math.round(progress)}%</span>
+                    </div>
                     <div className="relative h-3 bg-gray-700 rounded-full overflow-hidden">
                         <div
                             className="absolute h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300 ease-out"
@@ -564,7 +627,9 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                                 onMuteToggle={() => toggleMute(name)}
                                 onSoloToggle={() => toggleSolo(name)}
                                 isSoloed={soloedTrack === name}
-                                audioElement={audioRefs.current[name]}
+                                audioElement={null}
+                                forcedCurrentTime={currentTime}
+                                forcedIsPlaying={isPlaying}
                                 onInteractionStart={handleInteraction}
                             />
                         ))}
@@ -598,24 +663,37 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                                     const midiState = midiStatus[name] || { status: 'idle' };
                                     return (
                                         <button
-                                            key={`midi-${name}`}
+                                            key={name}
                                             onClick={() => handleTranscribe(name)}
                                             disabled={midiState.status === 'loading'}
-                                            className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-medium transition-all ${midiState.status === 'completed'
-                                                ? 'bg-green-600 hover:bg-green-500 text-white'
-                                                : midiState.status === 'loading'
-                                                    ? 'bg-amber-700/50 text-amber-300 cursor-wait'
-                                                    : 'bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/30'
-                                                }`}
+                                            className={`
+                                                relative overflow-hidden
+                                                flex flex-col items-center justify-center gap-1 py-3 px-2 rounded-lg 
+                                                border border-white/10 transition-all
+                                                ${midiState.status === 'completed'
+                                                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                                                    : 'bg-gray-800 hover:bg-gray-700 text-gray-300'}
+                                            `}
                                         >
-                                            {midiState.status === 'loading' ? (
-                                                <><Loader2 size={14} className="animate-spin" /> 採譜中...</>
-                                            ) : midiState.status === 'completed' ? (
-                                                <a href={midiState.url} download={`${name}.mid`} className="flex items-center gap-2">
-                                                    <Download size={14} /> {name}.mid
+                                            <span className="font-bold capitalize">{name}</span>
+
+                                            {midiState.status === 'loading' && (
+                                                <Loader2 size={16} className="animate-spin text-amber-500" />
+                                            )}
+
+                                            {midiState.status === 'idle' && (
+                                                <span className="text-[10px] text-gray-500">轉為 MIDI</span>
+                                            )}
+
+                                            {midiState.status === 'completed' && (
+                                                <a
+                                                    href={`${API_BASE_URL}${midiState.url}`}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    download
+                                                    className="flex items-center gap-1 text-[10px] bg-amber-500 text-black px-2 py-0.5 rounded-full font-bold hover:bg-amber-400 mt-1"
+                                                >
+                                                    <Download size={10} /> 下載
                                                 </a>
-                                            ) : (
-                                                <><Music size={14} /> {name} 轉 MIDI</>
                                             )}
                                         </button>
                                     );
@@ -624,58 +702,6 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                     </div>
                 </div>
             )}
-
-            {/* No file selected - show upload button */}
-            {status === 'idle' && !effectiveFileUrl && (
-                <div className="p-4 md:p-6 rounded-lg bg-gray-800/40 border border-dashed border-gray-600 text-center">
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileUpload}
-                        accept="audio/*"
-                        className="hidden"
-                    />
-                    <button
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isUploading}
-                        className="text-purple-400 hover:text-purple-300 flex items-center gap-2 justify-center w-full py-2"
-                    >
-                        {isUploading ? (
-                            <><Loader2 size={16} className="animate-spin" /> 上傳中...</>
-                        ) : (
-                            <><Upload size={16} /> 選擇音訊檔案 (裝置/雲端)</>
-                        )}
-                    </button>
-                    <p className="text-xs md:text-sm text-gray-500 mt-2">或從 YouTube 下載音樂</p>
-                </div>
-            )}
-
-            {/* File selected - show file info */}
-            {status === 'idle' && effectiveFileUrl && (
-                <div className="p-3 md:p-4 rounded-lg bg-green-500/10 border border-green-500/30 flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-green-400 text-sm md:text-base">
-                        <CheckCircle2 size={16} />
-                        <span className="font-bold">{localFileName || '已選擇檔案'}</span>
-                    </div>
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileUpload}
-                        accept="audio/*"
-                        className="hidden"
-                    />
-                    <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="text-xs text-gray-400 hover:text-white"
-                    >
-                        更換檔案
-                    </button>
-                </div>
-            )}
         </div>
     );
 };
-
-export default LocalAISeparator;
-
-

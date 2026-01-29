@@ -51,8 +51,7 @@ app = FastAPI(
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    # allow_origins=["*"],  # Allow all for local development
-    allow_origin_regex="https?://.*",  # Allow any HTTP/HTTPS origin (for LAN access)
+    allow_origins=["*"],  # Allow all for local development (Best for LAN)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -99,48 +98,17 @@ class TranscribeResponse(BaseModel):
 # ============== Helper Functions ==============
 
 @app.post("/api/analyze-bpm")
-async def analyze_bpm(request: AnalyzeRequest):
+def analyze_bpm(request: AnalyzeRequest):
     """分析音訊 BPM"""
     import librosa
     import numpy as np
-    
-    # 支援 URL 路徑轉本地路徑
-    # e.g. /files/downloads/xxx.mp3 -> backend-api/downloads/xxx.mp3
-    
-    try:
-        if request.file_path.startswith("/files/downloads/"):
-            filename = request.file_path.replace("/files/downloads/", "")
-            local_path = str(DOWNLOADS_DIR / filename)
-        elif request.file_path.startswith("http"):
-             # Handle full URL if passed
-             if "/files/downloads/" in request.file_path:
-                 filename = request.file_path.split("/files/downloads/")[-1]
-                 local_path = str(DOWNLOADS_DIR / filename)
-             else:
-                 raise HTTPException(status_code=400, detail="只支援分析本機下載的檔案")
-        else:
-             local_path = request.file_path
 
-        if not os.path.exists(local_path):
-            raise HTTPException(status_code=404, detail="找不到檔案")
-
-        # Load audio (only first 30 seconds to speed up)
-        y, sr = librosa.load(local_path, duration=60)
-        
-        # Estimate tempo
-        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-        tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr)
-        
-        bpm = round(float(tempo[0]))
-        
-        return {"bpm": bpm}
-        
-    except Exception as e:
-        print(f"BPM Analysis Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# ...
 
 @app.post("/api/analyze-upload")
-async def analyze_upload(file: UploadFile = File(...)):
+def analyze_upload(file: UploadFile = File(...)):
+    """上傳並分析檔案 BPM"""
+    import librosa
     """上傳並分析檔案 BPM"""
     import librosa
     import numpy as np
@@ -568,24 +536,45 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
     # Determine full path - handle both URL and path formats
     file_path = request.file_path
     
-    # Remove full URL prefix if present (e.g., http://localhost:8000/files/downloads/xxx.mp3)
-    if "://localhost" in file_path or "://127.0.0.1" in file_path:
-        # Extract path from URL
-        from urllib.parse import urlparse
-        parsed = urlparse(file_path)
-        file_path = parsed.path
-    
+    # Remove full URL prefix - Handle ANY URL format (localhost, IP, domain)
+    if "://" in file_path:
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(file_path)
+            file_path = parsed.path
+            print(f"[Debug] Parsed URL path: {file_path}")
+        except Exception as e:
+            print(f"[Debug] URL parse error: {e}")
+
     if file_path.startswith("/files/downloads/"):
         filename = file_path.replace("/files/downloads/", "")
         audio_path = DOWNLOADS_DIR / filename
+        print(f"[Debug] Resolved DOWNLOADS path: {audio_path}")
     elif file_path.startswith("/files/separated/"):
         filename = file_path.replace("/files/separated/", "")
         audio_path = SEPARATED_DIR / filename
+        print(f"[Debug] Resolved SEPARATED path: {audio_path}")
     else:
+        # Handle cases where path might still be absolute or relative on disk
         audio_path = Path(file_path)
+        print(f"[Debug] Resolved Direct path: {audio_path}")
     
     if not audio_path.exists():
-        raise HTTPException(status_code=404, detail=f"找不到音訊檔案: {request.file_path}")
+        # Fallback: Try to find by filename only
+        search_name = audio_path.name
+        print(f"[Debug] Exact path not found. Searching for {search_name} in directories...")
+        
+        found = list(DOWNLOADS_DIR.rglob(search_name)) + list(SEPARATED_DIR.rglob(search_name))
+        
+        if found:
+            audio_path = found[0]
+            print(f"[Debug] Found fallback file: {audio_path}")
+        else:
+            print(f"[Error] File not found at: {audio_path}")
+            # List dir content for debugging
+            if audio_path.parent.exists():
+                print(f"[Debug] Dir content of {audio_path.parent}: {list(audio_path.parent.glob('*'))}")
+            raise HTTPException(status_code=404, detail=f"找不到音訊檔案: {request.file_path}")
     
     update_job_status(job_id, {
         "status": "pending",

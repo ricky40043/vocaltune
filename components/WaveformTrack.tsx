@@ -11,9 +11,9 @@ interface WaveformTrackProps {
     muted: boolean;
     onVolumeChange: (volume: number) => void;
     onMuteToggle: () => void;
-    onSoloToggle?: () => void;
-    isSoloed?: boolean;
-    // New: Direct Audio Control
+    // New: Controlled Mode Props
+    forcedCurrentTime?: number;
+    forcedIsPlaying?: boolean;
     audioElement: HTMLAudioElement | null;
     onInteractionStart?: () => void;
 }
@@ -42,6 +42,8 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
     onSoloToggle,
     isSoloed,
     audioElement,
+    forcedCurrentTime,
+    forcedIsPlaying,
     onInteractionStart
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -52,27 +54,33 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
 
     const [waveformData, setWaveformData] = useState<Float32Array | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [currentTime, setCurrentTime] = useState(0);
+    const [internalIsPlaying, setInternalIsPlaying] = useState(false);
+    const [internalCurrentTime, setInternalCurrentTime] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
+
+    // Determine effective state
+    const isPlaying = forcedIsPlaying !== undefined ? forcedIsPlaying : internalIsPlaying;
+    const currentTime = forcedCurrentTime !== undefined ? forcedCurrentTime : internalCurrentTime;
 
     const config = TRACK_COLORS[name] || TRACK_COLORS.other;
 
     // Monitor Audio Element State (Time & Play/Pause)
     useEffect(() => {
-        if (!audioElement) return;
+        if (!audioElement || forcedCurrentTime !== undefined) return;
+
+        // ... (rest of logic handles internal state only if not forced)
 
         const updateState = () => {
             if (!isDragging) {
-                setCurrentTime(audioElement.currentTime);
+                setInternalCurrentTime(audioElement.currentTime);
             }
-            setIsPlaying(!audioElement.paused);
+            setInternalIsPlaying(!audioElement.paused);
             animationRef.current = requestAnimationFrame(updateState);
         };
 
-        const onPlay = () => setIsPlaying(true);
-        const onPause = () => setIsPlaying(false);
-        const onEnded = () => setIsPlaying(false);
+        const onPlay = () => setInternalIsPlaying(true);
+        const onPause = () => setInternalIsPlaying(false);
+        const onEnded = () => setInternalIsPlaying(false);
 
         audioElement.addEventListener('play', onPlay);
         audioElement.addEventListener('pause', onPause);
@@ -208,8 +216,10 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
         const newTime = percentage * duration;
 
         // Sync audio immediately
-        audioElement.currentTime = newTime;
-        setCurrentTime(newTime);
+        if (audioElement) {
+            audioElement.currentTime = newTime;
+        }
+        setInternalCurrentTime(newTime); // Update internal state
 
         onInteractionStart?.();
     }, [duration, audioElement, onInteractionStart]);
@@ -257,8 +267,8 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
                     <button
                         onClick={togglePlay}
                         className={`w-8 h-7 flex items-center justify-center rounded border transition-all ${isPlaying
-                                ? 'border-green-500 bg-green-500/20 text-green-500'
-                                : 'border-white/20 bg-white/5 text-gray-400 hover:bg-white/10 hover:border-white/40'
+                            ? 'border-green-500 bg-green-500/20 text-green-500'
+                            : 'border-white/20 bg-white/5 text-gray-400 hover:bg-white/10 hover:border-white/40'
                             }`}
                         title={isPlaying ? "暫停" : "播放此軌"}
                     >
@@ -269,8 +279,8 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
                     <button
                         onClick={(e) => { e.stopPropagation(); onMuteToggle(); }}
                         className={`flex-1 h-7 text-xs font-bold rounded border transition-all flex items-center justify-center ${muted
-                                ? 'bg-gray-600 text-white border-gray-500'
-                                : 'bg-white/5 border-white/20 text-gray-400 hover:bg-white/10'
+                            ? 'bg-gray-600 text-white border-gray-500'
+                            : 'bg-white/5 border-white/20 text-gray-400 hover:bg-white/10'
                             }`}
                         title="Mute (靜音)"
                     >
@@ -282,8 +292,8 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
                         <button
                             onClick={(e) => { e.stopPropagation(); onSoloToggle(); }}
                             className={`flex-1 h-7 text-xs font-bold rounded border transition-all flex items-center justify-center ${isSoloed
-                                    ? 'bg-white text-black border-white'
-                                    : 'bg-white/5 border-white/20 text-gray-400 hover:bg-white/10'
+                                ? 'bg-white text-black border-white'
+                                : 'bg-white/5 border-white/20 text-gray-400 hover:bg-white/10'
                                 }`}
                             title="Solo (獨奏)"
                         >

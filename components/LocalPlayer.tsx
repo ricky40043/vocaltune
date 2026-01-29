@@ -69,9 +69,14 @@ interface LocalPlayerProps {
   audioFileUrl?: string;
   onReset?: () => void;
   onFileLoaded?: (file: File) => void;
+  isActive?: boolean;
 }
 
-export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset, onFileLoaded }) => {
+const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
+  ? (import.meta as any).env.VITE_API_URL
+  : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
+
+export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset, onFileLoaded, isActive = true }) => {
   const [player, setPlayer] = useState<Tone.GrainPlayer | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -94,6 +99,30 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   // BPM Params
   const [originalBpm, setOriginalBpm] = useState(120);
   const [tapTimes, setTapTimes] = useState<number[]>([]);
+
+  const savedTimeRef = useRef(0);
+
+  // Isolation: Handle Tab Switching
+  useEffect(() => {
+    if (!player) return;
+
+    if (isActive) {
+      // Restore timeline
+      Tone.Transport.seconds = savedTimeRef.current;
+      setCurrentTime(savedTimeRef.current);
+
+      // Resume
+      player.sync();
+    } else {
+      // Save timeline before stopping
+      savedTimeRef.current = Tone.Transport.seconds;
+
+      // Background: Mute and Unsync
+      player.unsync();
+      setIsPlaying(false);
+      Tone.Transport.stop(); // Stop global transport
+    }
+  }, [isActive, player]);
 
   const [lowGain, setLowGain] = useState(0);
   const [midGain, setMidGain] = useState(0);
@@ -179,10 +208,17 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
       if (player) player.dispose();
 
       try {
-        await Tone.start();
+        // Tone.start() removed to prevent mobile hang on prop update
+        // await Tone.start();
         const response = await fetch(audioFileUrl);
         const arrayBuffer = await response.arrayBuffer();
-        const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
+
+        // Decode with timeout
+        const decodePromise = Tone.context.decodeAudioData(arrayBuffer);
+        const timeoutPromise = new Promise<AudioBuffer>((_, reject) =>
+          setTimeout(() => reject(new Error("Audio decoding timed out.")), 15000)
+        );
+        const audioBuffer = await Promise.race([decodePromise, timeoutPromise]);
 
         const newPlayer = new Tone.GrainPlayer(audioBuffer).toDestination();
         newPlayer.loop = false;
@@ -199,7 +235,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
         // Analyze BPM from backend
         try {
-          const bpmRes = await fetch(`http://${window.location.hostname}:8000/api/analyze-bpm`, {
+          const bpmRes = await fetch(`${API_BASE_URL}/api/analyze-bpm`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ file_path: audioFileUrl })
@@ -269,9 +305,19 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
     if (player) player.dispose();
     try {
-      await Tone.start();
+      // Tone.start() removed from here to prevent hanging on mobile.
+      // Context will resume on first Play click.
+      // await Tone.start();
+
       const arrayBuffer = await file.arrayBuffer();
-      const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
+
+      // Decode with safety timeout (15s)
+      const decodePromise = Tone.context.decodeAudioData(arrayBuffer);
+      const timeoutPromise = new Promise<AudioBuffer>((_, reject) =>
+        setTimeout(() => reject(new Error("Audio decoding timed out (15s). File might be too large or incompatible.")), 15000)
+      );
+
+      const audioBuffer = await Promise.race([decodePromise, timeoutPromise]);
 
       // Sync to Transport
       const newPlayer = new Tone.GrainPlayer(audioBuffer).toDestination();
@@ -299,7 +345,9 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
       // Analyze BPM from upload (Async)
       const formData = new FormData();
       formData.append('file', file);
-      fetch(`http://${window.location.hostname}:8000/api/analyze-upload`, {
+
+      // FIX: Ensure this is not awaited at top level, it is a promise chain
+      fetch(`${API_BASE_URL}/api/analyze-upload`, {
         method: 'POST',
         body: formData
       }).then(res => res.json()).then(data => {
@@ -500,6 +548,12 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
   return (
     <div className="space-y-4 animate-fade-in pb-12">
+      {/* Silent Mode Tip */}
+      <div className="md:hidden px-4 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-2 text-yellow-200 text-xs">
+        <Volume2 size={14} />
+        <span>若沒有聲音，請檢查手機是否開啟靜音模式（側邊開關）</span>
+      </div>
+
       {/* Reset Header */}
       <div className="flex items-center justify-between p-4 md:p-5 rounded-xl bg-gradient-to-r from-blue-900/40 to-cyan-900/40 border border-blue-500/30">
         <div className="flex items-center gap-3">

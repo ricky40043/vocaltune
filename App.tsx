@@ -320,6 +320,7 @@ export default function App() {
                             const url = URL.createObjectURL(file);
                             setDownloadedFileUrl(url);
                         }}
+                        isActive={activeTab === 'pitcher'}
                     />
                 </div>
 
@@ -327,6 +328,7 @@ export default function App() {
                 <div style={{ display: activeTab === 'splitter' ? 'block' : 'none' }} className="animate-fade-in space-y-4 max-w-5xl mx-auto">
                     <LocalAISeparator
                         audioFileUrl={downloadedFileUrl ? (downloadedFileUrl.startsWith('blob:') ? downloadedFileUrl : `${API_BASE_URL}${downloadedFileUrl}`) : undefined}
+                        isActive={activeTab === 'splitter'}
                     />
                 </div>
 
