@@ -225,6 +225,10 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         if (eqRef.current) newPlayer.connect(eqRef.current);
         newPlayer.sync().start(0);
 
+        console.log(`[LocalPlayer] Loaded remote URL: ${audioFileUrl}`);
+        console.log(`[LocalPlayer] Decoded Buffer: Duration=${audioBuffer.duration}s, Channels=${audioBuffer.numberOfChannels}, SampleRate=${audioBuffer.sampleRate}`);
+        console.log(`[LocalPlayer] Player State: ${newPlayer.state}, Volume: ${newPlayer.volume.value}`);
+
         setPlayer(newPlayer);
         setDuration(audioBuffer.duration);
         setIsLoaded(true);
@@ -242,7 +246,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
           });
           if (bpmRes.ok) {
             const bpmData = await bpmRes.json();
-            if (bpmData.bpm) {
+            if (bpmData && typeof bpmData.bpm === 'number') {
               setOriginalBpm(bpmData.bpm);
               console.log('Analyzed BPM:', bpmData.bpm);
             } else {

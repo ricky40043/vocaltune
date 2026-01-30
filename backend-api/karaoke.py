@@ -127,48 +127,64 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
         # Simplification: Just run it. Progress is roughly simulated or block-waiting.
         
         # Demucs parsing logic
+        # Merge stderr to stdout to capture tqdm progress bars
         proc_demucs = await asyncio.create_subprocess_exec(
-            *cmd_demucs, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            *cmd_demucs, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
         )
 
+        buffer = ""
+        full_log = []
+
         while True:
-            line = await proc_demucs.stdout.readline()
-            if not line:
+            # Read chunk instead of readline to handle \r
+            chunk = await proc_demucs.stdout.read(4096)
+            if not chunk:
                 break
             
-            line_str = line.decode('utf-8', errors='ignore').strip()
+            chunk_str = chunk.decode('utf-8', errors='ignore')
+            buffer += chunk_str
+            full_log.append(chunk_str)
             
-            # Parse progress: e.g. " 45%|████... "
-            if "%" in line_str and "|" in line_str:
-                try:
-                    percent_str = line_str.split('%')[0].strip()
-                    # Get last few chars
-                    percent_digits = percent_str[-3:]
-                    if percent_digits.isdigit():
-                        d_prog = int(percent_digits)
-                        # Map Demucs 0-100% to Overall 40-90%
-                        # 40 + (d_prog * 0.5)
-                        overall_prog = 40 + int(d_prog * 0.5)
-                        
-                        # Only update every 5% to reduce noise
-                        if overall_prog % 5 == 0:
-                            update_job_status(job_id, {
-                                "status": "separating", 
-                                "progress": overall_prog,
-                                "message": f"AI 去人聲運算中... {d_prog}%"
-                            })
-                except:
-                    pass
+            # Keep log size reasonable
+            if len(full_log) > 1000:
+                full_log = full_log[-500:]
+
+            while '\n' in buffer or '\r' in buffer:
+                if '\n' in buffer:
+                    line, buffer = buffer.split('\n', 1)
+                else:
+                    line, buffer = buffer.split('\r', 1)
+                
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Parse progress: e.g. " 45%|████... "
+                if "%" in line and "|" in line:
+                    try:
+                        percent_str = line.split('%')[0].strip()
+                        # Get last few chars
+                        percent_digits = percent_str[-3:]
+                        if percent_digits.isdigit():
+                            d_prog = int(percent_digits)
+                            # Map Demucs 0-100% to Overall 40-90%
+                            overall_prog = 40 + int(d_prog * 0.5)
+                            
+                            # Update more frequently for smoother UI
+                            if overall_prog % 2 == 0:
+                                update_job_status(job_id, {
+                                    "status": "separating", 
+                                    "progress": overall_prog,
+                                    "message": f"AI 去人聲運算中... {d_prog}%"
+                                })
+                    except:
+                        pass
 
         await proc_demucs.wait()
         
-        # Capture stderr for error checking
-        stderr_data = await proc_demucs.stderr.read()
-        stderr = stderr_data
-        
         if proc_demucs.returncode != 0:
-            error_msg = stderr_data.decode('utf-8', errors='ignore')
-            raise Exception(f"Demucs 分離失敗: {error_msg}")
+            error_msg = "".join(full_log[-20:]) # Last 20 chunks as context
+            raise Exception(f"Demucs 分離失敗 (Exit Code: {proc_demucs.returncode}): {error_msg}")
 
         # 4. Mix Instrumental
         # Folder structure: work_dir/htdemucs_6s/source_audio/
