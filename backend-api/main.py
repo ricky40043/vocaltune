@@ -882,6 +882,10 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 # Serve Static Files (Frontend) - Production Mode
 # When running in Docker, /app/dist will contain the built frontend
+# Fix: Register m4a mimetype explicitly to ensure browsers play it
+import mimetypes
+mimetypes.add_type("audio/mp4", ".m4a")
+
 FRONTEND_DIST = Path("/app/dist")
 
 if FRONTEND_DIST.exists():

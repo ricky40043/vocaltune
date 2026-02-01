@@ -103,26 +103,27 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   const savedTimeRef = useRef(0);
 
   // Isolation: Handle Tab Switching
-  useEffect(() => {
-    if (!player) return;
+  // [Debug] Disabled to match v1 logic (Jan 26) where play/pause was manual only.
+  // useEffect(() => {
+  //   if (!player) return;
 
-    if (isActive) {
-      // Restore timeline
-      Tone.Transport.seconds = savedTimeRef.current;
-      setCurrentTime(savedTimeRef.current);
+  //   if (isActive) {
+  //     // Restore timeline
+  //     Tone.Transport.seconds = savedTimeRef.current;
+  //     setCurrentTime(savedTimeRef.current);
 
-      // Resume
-      player.sync();
-    } else {
-      // Save timeline before stopping
-      savedTimeRef.current = Tone.Transport.seconds;
+  //     // Resume
+  //     player.sync();
+  //   } else {
+  //     // Save timeline before stopping
+  //     savedTimeRef.current = Tone.Transport.seconds;
 
-      // Background: Mute and Unsync
-      player.unsync();
-      setIsPlaying(false);
-      Tone.Transport.stop(); // Stop global transport
-    }
-  }, [isActive, player]);
+  //     // Background: Mute and Unsync
+  //     player.unsync();
+  //     setIsPlaying(false);
+  //     Tone.Transport.stop(); // Stop global transport
+  //   }
+  // }, [isActive, player]);
 
   const [lowGain, setLowGain] = useState(0);
   const [midGain, setMidGain] = useState(0);
@@ -134,12 +135,14 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
   // Export State
   const [isExporting, setIsExporting] = useState(false);
+  const [debugPeak, setDebugPeak] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const micRef = useRef<Tone.UserMedia | null>(null);
   const reverbRef = useRef<Tone.Reverb | null>(null);
   const micGainRef = useRef<Tone.Gain | null>(null);
   const eqRef = useRef<Tone.EQ3 | null>(null);
+  const playerRef = useRef<Tone.Player | Tone.GrainPlayer | null>(null); // Track player synchronous
 
   useEffect(() => {
     const initAudio = async () => {
@@ -165,7 +168,8 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     };
     initAudio();
     return () => {
-      if (player) player.dispose();
+      // Cleanup all resources
+      if (playerRef.current) playerRef.current.dispose();
       if (micRef.current) { micRef.current.close(); micRef.current.dispose(); }
       if (reverbRef.current) reverbRef.current.dispose();
       if (micGainRef.current) micGainRef.current.dispose();
@@ -204,12 +208,21 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
       setIsLoaded(false);
       Tone.Transport.stop();
       Tone.Transport.cancel();
+      Tone.Transport.seconds = 0;
 
-      if (player) player.dispose();
+      // Dispose existing using Ref
+      if (playerRef.current) {
+        console.log('[LocalPlayer] Disposing old player (Ref)...');
+        playerRef.current.dispose();
+        playerRef.current = null;
+      }
+      if (player) {
+        player.dispose(); // Safety check for state-based player
+      }
 
       try {
         // Tone.start() removed to prevent mobile hang on prop update
-        // await Tone.start();
+        await Tone.start();
         const response = await fetch(audioFileUrl);
         const arrayBuffer = await response.arrayBuffer();
 
@@ -220,16 +233,43 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         );
         const audioBuffer = await Promise.race([decodePromise, timeoutPromise]);
 
+        // Check for silence (Amplitude Analysis)
+        const channelData = audioBuffer.getChannelData(0);
+        let peak = 0;
+        // Check every 1000th sample to save time
+        for (let i = 0; i < channelData.length; i += 1000) {
+          const val = Math.abs(channelData[i]);
+          if (val > peak) peak = val;
+        }
+        console.log(`[LocalPlayer] Peak Amplitude: ${peak.toFixed(4)}`);
+
+        // Update Debug Panel directly for user visibility
+        setDebugPeak(peak);
+
+        // Connect to EQ (which connects to Destination), or directly to Destination if EQ missing.
+        // FINAL FIX: Use GrainPlayer (like Upload) and clean up connections
+        // CRITICAL WARNING: DO NOT MODIFY THIS SECTION. 
+        // 嚴禁修改：這部分的音訊連接邏輯經過多次調試才穩定 (v1還原)。
+        // Unwrap Tone.Buffer (Reverting to v1 logic: 988cd6a)
+        // Unwrap Tone.Buffer (Reverting to v1 logic: 988cd6a)
+        // const toneBuffer = new Tone.Buffer(audioBuffer); 
         const newPlayer = new Tone.GrainPlayer(audioBuffer).toDestination();
         newPlayer.loop = false;
-        if (eqRef.current) newPlayer.connect(eqRef.current);
+
+        // Connect nodes
+        if (eqRef.current) {
+          newPlayer.connect(eqRef.current);
+        }
+
+        Tone.Transport.seconds = 0;
         newPlayer.sync().start(0);
 
         console.log(`[LocalPlayer] Loaded remote URL: ${audioFileUrl}`);
-        console.log(`[LocalPlayer] Decoded Buffer: Duration=${audioBuffer.duration}s, Channels=${audioBuffer.numberOfChannels}, SampleRate=${audioBuffer.sampleRate}`);
-        console.log(`[LocalPlayer] Player State: ${newPlayer.state}, Volume: ${newPlayer.volume.value}`);
 
+        // CRITICAL FIX: Update Ref so cleanup works!
+        playerRef.current = newPlayer;
         setPlayer(newPlayer);
+
         setDuration(audioBuffer.duration);
         setIsLoaded(true);
 
@@ -267,7 +307,16 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     };
 
     loadFromUrl();
-  }, [audioFileUrl]);
+
+    return () => {
+      console.log('[LocalPlayer] Cleanup: Effect triggered (URL changed or unmount).');
+      if (playerRef.current) {
+        playerRef.current.dispose();
+        playerRef.current = null;
+        setPlayer(null);
+      }
+    };
+  }, [audioFileUrl]); // Keep deps stick to URL to avoid re-runs
 
   // Reset all settings
   const handleReset = () => {
@@ -296,91 +345,44 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     onReset?.();
   };
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
-    setIsLoading(true);
-    setFileName(file.name);
-    setIsPlaying(false);
-    setIsLoaded(false);
-    // Stop any existing transport
-    Tone.Transport.stop();
-    Tone.Transport.cancel();
-
-    if (player) player.dispose();
-    try {
-      // Tone.start() removed from here to prevent hanging on mobile.
-      // Context will resume on first Play click.
-      // await Tone.start();
-
-      const arrayBuffer = await file.arrayBuffer();
-
-      // Decode with safety timeout (15s)
-      const decodePromise = Tone.context.decodeAudioData(arrayBuffer);
-      const timeoutPromise = new Promise<AudioBuffer>((_, reject) =>
-        setTimeout(() => reject(new Error("Audio decoding timed out (15s). File might be too large or incompatible.")), 15000)
-      );
-
-      const audioBuffer = await Promise.race([decodePromise, timeoutPromise]);
-
-      // Sync to Transport
-      const newPlayer = new Tone.GrainPlayer(audioBuffer).toDestination();
-      newPlayer.loop = false;
-
-      // Connect nodes
-      if (eqRef.current) newPlayer.connect(eqRef.current);
-
-      // We will schedule it on Transport to get tracking.
-      newPlayer.sync().start(0);
-
-      setPlayer(newPlayer);
-      setDuration(audioBuffer.duration);
-      setIsLoaded(true);
-
-      // Reset settings
-      newPlayer.playbackRate = playbackRate;
-      newPlayer.detune = detune;
-      newPlayer.volume.value = volume;
-
-      // Estimate BPM (Very rough estimation, users should use Tap)
-      // For now, default to 120, user taps to set.
-      setOriginalBpm(120);
-
-      // Analyze BPM from upload (Async)
-      const formData = new FormData();
-      formData.append('file', file);
-
-      // FIX: Ensure this is not awaited at top level, it is a promise chain
-      fetch(`${API_BASE_URL}/api/analyze-upload`, {
-        method: 'POST',
-        body: formData
-      }).then(res => res.json()).then(data => {
-        if (data.bpm) {
-          setOriginalBpm(data.bpm);
-          console.log('Analyzed Upload BPM:', data.bpm);
-        }
-      }).catch(console.error);
-
-      // Notify parent
+    if (file) {
       onFileLoaded?.(file);
-
-    } catch (err) {
-      console.error(err);
-      alert("載入失敗");
-    } finally {
-      setIsLoading(false);
+      event.target.value = '';
     }
+    return;
+
   };
 
   const togglePlay = async () => {
     if (!player || !isLoaded) return;
+
+    // Resume context if suspended (Critical for playback)
+    if (Tone.context.state !== 'running') {
+      await Tone.context.resume();
+    }
     await Tone.start();
+
+    // CRITICAL WARNING: DO NOT ADD 'silentOsc' HERE.
+    // 嚴禁修改：iOS Audio Unlock Hack caused mute issues. Do not re-introduce.
+    // iOS Audio Unlock Hack (Removed per user request)
+    // const silentOsc = new Tone.Oscillator(440, "sine").toDestination();
+    // silentOsc.volume.value = -100; // Almost silent, but technically active
+    // silentOsc.start().stop("+0.1");
+
     if (isPlaying) {
       Tone.Transport.pause();
       setIsPlaying(false);
     } else {
+      console.log('[LocalPlayer] Starting Playback...');
       Tone.Transport.start();
       setIsPlaying(true);
+
+      // Verification
+      setTimeout(() => {
+        console.log(`[LocalPlayer] Playback Check: Transport=${Tone.Transport.state}, Player=${player.state}`);
+      }, 500);
     }
   };
 
@@ -552,11 +554,13 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
   return (
     <div className="space-y-4 animate-fade-in pb-12">
-      {/* Silent Mode Tip */}
+      {/* Silent Mode Tip (Mobile Only) */}
       <div className="md:hidden px-4 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-2 text-yellow-200 text-xs">
         <Volume2 size={14} />
-        <span>若沒有聲音，請檢查手機是否開啟靜音模式（側邊開關）</span>
+        <span>若沒有聲音，請檢查手機是否開啟靜音模式（側邊開關），或點擊以恢復音訊引擎。</span>
       </div>
+
+      {/* Debug Info Panel Removed per user request */}
 
       {/* Reset Header */}
       <div className="flex items-center justify-between p-4 md:p-5 rounded-xl bg-gradient-to-r from-blue-900/40 to-cyan-900/40 border border-blue-500/30">
@@ -636,10 +640,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         </div>
 
         <div className="flex justify-center items-center gap-6 md:gap-10 mb-8">
-          <button onClick={toggleMic} className={`flex flex-col items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-2xl transition-all border shadow-lg ${micEnabled ? 'bg-red-500/20 border-red-500 text-red-400' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'}`}>
-            {micEnabled ? <Mic size={24} /> : <MicOff size={24} />}
-            <span className="text-[10px] md:text-xs mt-1 font-bold">{micEnabled ? 'ON' : 'MIC'}</span>
-          </button>
+
 
           <div className="flex items-center gap-4 md:gap-6">
             <button onClick={() => handleSeek(-5)} className="text-gray-400 hover:text-white flex flex-col items-center p-2"><RotateCcw size={20} /><span className="text-[10px] font-mono mt-1">-5s</span></button>
@@ -649,7 +650,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
             <button onClick={() => handleSeek(5)} className="text-gray-400 hover:text-white flex flex-col items-center p-2 transform scale-x-[-1]"><RotateCcw size={20} /><span className="text-[10px] font-mono mt-1 transform scale-x-[-1]">+5s</span></button>
           </div>
 
-          <div className="w-16 h-16 md:w-20 md:h-20" /> {/* Spacer for balance */}
+
         </div>
 
         <div className="space-y-6">
@@ -808,6 +809,6 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
           </button>
         </div>
       </div>
-    </div>
+    </div >
   );
 };

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Music, Download, ExternalLink, Layers, Youtube, FileAudio, ArrowRight, AlertTriangle, CheckCircle2, Search, Disc, Loader2, Music2, SplitSquareVertical, FileMusic } from 'lucide-react';
+import { Music, Download, Upload, ExternalLink, Layers, Youtube, FileAudio, ArrowRight, AlertTriangle, CheckCircle2, Search, Disc, Loader2, Music2, SplitSquareVertical, FileMusic } from 'lucide-react';
 import { getYouTubeID } from './utils/youtube';
 import { LocalPlayer } from './components/LocalPlayer';
 import { LocalAISeparator } from './components/LocalAISeparator';
@@ -193,6 +193,21 @@ export default function App() {
                             <form onSubmit={handleUrlCheck} className="relative group">
                                 <input
                                     type="text"
+                                    onClick={async () => {
+                                        try {
+                                            const text = await navigator.clipboard.readText();
+                                            if (text && (text.includes('youtube.com') || text.includes('youtu.be'))) {
+                                                if (window.confirm(`偵測到 YouTube 網址，是否貼上？\n${text}`)) {
+                                                    setUrl(text);
+                                                    if (urlError) setUrlError(null);
+                                                    const id = getYouTubeID(text);
+                                                    if (id) setVideoId(id);
+                                                }
+                                            }
+                                        } catch (e) {
+                                            console.error('Clipboard access denied', e);
+                                        }
+                                    }}
                                     value={url}
                                     onChange={(e) => {
                                         setUrl(e.target.value);
@@ -200,7 +215,7 @@ export default function App() {
                                         const id = getYouTubeID(e.target.value);
                                         if (id) setVideoId(id);
                                     }}
-                                    placeholder="貼上 YouTube 網址..."
+                                    placeholder="貼上 YouTube 網址 (或點擊自動貼上)..."
                                     className={`w-full bg-gray-900 border-2 rounded-xl py-3 pl-10 pr-12 text-sm text-white placeholder-gray-500 outline-none transition-all shadow-inner ${urlError ? 'border-red-500' : 'border-gray-700 focus:border-brand-accent'}`}
                                 />
                                 <Search className="absolute left-3 top-3.5 text-gray-500" size={18} />
@@ -246,7 +261,7 @@ export default function App() {
                                     <div>
                                         <div className="font-bold text-white text-xl md:text-2xl">
                                             {downloadStatus === 'downloading' ? '下載中...' :
-                                                downloadStatus === 'completed' ? '下載完成！(點擊儲存)' :
+                                                downloadStatus === 'completed' ? '下載完成 (點擊重新轉換)' :
                                                     '下載音訊'}
                                         </div>
                                         <div className="text-sm md:text-base text-white/80">
@@ -314,7 +329,7 @@ export default function App() {
                                         }
                                     }}
                                 />
-                                <Download size={32} className="mx-auto text-gray-500 mb-2 md:w-12 md:h-12" />
+                                <Upload size={32} className="mx-auto text-gray-500 mb-2 md:w-12 md:h-12" />
                                 <p className="text-gray-400 font-medium md:text-lg">匯入音訊檔案</p>
                                 <p className="text-xs md:text-sm text-gray-600 mt-1">可從 裝置資料夾 或 雲端硬碟(iCloud/Drive) 選取</p>
                             </label>
