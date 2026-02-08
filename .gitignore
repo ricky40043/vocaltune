@@ -26,6 +26,8 @@ dist-ssr
 # Project specific
 backend-api/venv/
 backend-api/separated/
+backend-api/karaoke_output/
+backend-api/downloads/
 downloads/
 separated_audio/
 .env
