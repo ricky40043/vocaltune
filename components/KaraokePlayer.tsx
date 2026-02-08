@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Loader2, Upload, Download, Mic, Youtube } from 'lucide-react';
+import { Play, Pause, Loader2, Upload, Download, Mic, Youtube, MicOff } from 'lucide-react';
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
     ? (import.meta as any).env.VITE_API_URL
-    : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
+    : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8050` : 'http://localhost:8050');
 
 interface KaraokePlayerProps {
     youtubeUrl?: string; // From App input
@@ -19,13 +19,65 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
     const [message, setMessage] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [videoUrl, setVideoUrl] = useState<string | null>(null);
+    const [vocalsUrl, setVocalsUrl] = useState<string | null>(null);
+    const [playVocals, setPlayVocals] = useState(false); // Default: Vocals Muted (False)
 
     // Local Upload State
     const [localFile, setLocalFile] = useState<File | null>(null);
     const [isUploading, setIsUploading] = useState(false);
 
     // Refs
+    // Refs
     const videoRef = useRef<HTMLVideoElement>(null);
+    const vocalsRef = useRef<HTMLAudioElement>(null);
+
+    // Sync Logic
+    useEffect(() => {
+        const video = videoRef.current;
+        const vocals = vocalsRef.current;
+        if (!video || !vocals || !vocalsUrl) return;
+
+        const sync = () => {
+            if (Math.abs(vocals.currentTime - video.currentTime) > 0.1) {
+                vocals.currentTime = video.currentTime;
+            }
+        };
+
+        const onPlay = () => vocals.play().catch(e => console.log("Vocals play error", e));
+        const onPause = () => vocals.pause();
+        const onSeeking = () => { vocals.currentTime = video.currentTime; };
+        const onRateChange = () => { vocals.playbackRate = video.playbackRate; };
+
+        // Sync more aggressively during playback
+        const interval = setInterval(sync, 500);
+
+        video.addEventListener('play', onPlay);
+        video.addEventListener('pause', onPause);
+        video.addEventListener('seeking', onSeeking);
+        video.addEventListener('seeked', onSeeking);
+        video.addEventListener('ratechange', onRateChange);
+        video.addEventListener('waiting', onPause);
+        video.addEventListener('playing', onPlay);
+
+        return () => {
+            clearInterval(interval);
+            video.removeEventListener('play', onPlay);
+            video.removeEventListener('pause', onPause);
+            video.removeEventListener('seeking', onSeeking);
+            video.removeEventListener('seeked', onSeeking);
+            video.removeEventListener('ratechange', onRateChange);
+            video.removeEventListener('waiting', onPause);
+            video.removeEventListener('playing', onPlay);
+        };
+    }, [vocalsUrl, status]);
+
+    // Handle Vocal Muting
+    useEffect(() => {
+        if (vocalsRef.current) {
+            vocalsRef.current.muted = !playVocals;
+            vocalsRef.current.volume = playVocals ? 1 : 0;
+        }
+    }, [playVocals, vocalsUrl]);
 
     // Handle Start Processing
     const startProcessing = async () => {
@@ -33,7 +85,10 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
         setProgress(0);
         setMessage('正在初始化...');
         setError(null);
+        setMessage('正在初始化...');
+        setError(null);
         setVideoUrl(null);
+        setVocalsUrl(null);
 
         try {
             let targetUrl = youtubeUrl;
@@ -102,6 +157,9 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                     } else if (data.file_url) {
                         // Fallback if backend consistent naming varies
                         setVideoUrl(`${API_BASE_URL}${data.file_url}`);
+                    }
+                    if (data.vocals_url) {
+                        setVocalsUrl(`${API_BASE_URL}${data.vocals_url}`);
                     }
                     clearInterval(interval);
                 } else if (data.status === 'error') {
@@ -240,6 +298,43 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                             controls
                             playsInline
                         />
+                        {/* Audio Player for Syncing Vocals */}
+                        {vocalsUrl && (
+                            <audio ref={vocalsRef} src={vocalsUrl} className="hidden" preload="auto" />
+                        )}
+                    </div>
+
+                    {/* Controls Bar */}
+                    <div className="bg-gray-800 rounded-lg p-4 flex items-center justify-between border border-gray-700">
+                        <div className="flex items-center space-x-4">
+                            {/* Vocal Toggle */}
+                            <label className="flex items-center space-x-3 cursor-pointer select-none group">
+                                <div className="relative">
+                                    <input
+                                        type="checkbox"
+                                        checked={playVocals}
+                                        onChange={(e) => setPlayVocals(e.target.checked)}
+                                        className="sr-only peer"
+                                        disabled={!vocalsUrl}
+                                    />
+                                    <div className="w-12 h-7 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-purple-600"></div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    {playVocals ? <Mic className="w-5 h-5 text-purple-400" /> : <MicOff className="w-5 h-5 text-gray-400" />}
+                                    <span className={`font-bold transition-colors ${playVocals ? 'text-white' : 'text-gray-400'}`}>
+                                        {playVocals ? "人聲播放中" : "人聲已靜音"}
+                                    </span>
+                                </div>
+                            </label>
+                        </div>
+
+                        {/* Status Indicator */}
+                        <div className="flex items-center space-x-2 text-sm text-gray-400">
+                            <div className={`w-2 h-2 rounded-full ${vocalsUrl ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500'}`}></div>
+                            <span title={!vocalsUrl && status === 'completed' ? "後端未能產生人聲音軌" : ""}>
+                                {vocalsUrl ? "人聲軌道已同步" : (status === 'completed' ? "人聲軌道無法使用" : "人聲軌道準備中...")}
+                            </span>
+                        </div>
                     </div>
 
                     <div className="flex flex-col sm:flex-row gap-4 justify-center">

@@ -9,7 +9,7 @@ import { WaveformTrack } from './WaveformTrack';
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
     ? (import.meta as any).env.VITE_API_URL
-    : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
+    : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8050` : 'http://localhost:8050');
 
 interface TrackState {
     url: string;

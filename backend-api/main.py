@@ -83,6 +83,7 @@ class JobStatusResponse(BaseModel):
     progress: int = 0
     message: str = ""
     file_url: Optional[str] = None
+    vocals_url: Optional[str] = None
     tracks: Optional[dict] = None
     error: Optional[str] = None
 
@@ -599,6 +600,7 @@ async def get_status(job_id: str):
         progress=status.get("progress", 0),
         message=status.get("message", ""),
         file_url=status.get("file_url"),
+        vocals_url=status.get("vocals_url"),
         tracks=status.get("tracks"),
         error=status.get("error")
     )
@@ -879,7 +881,7 @@ async def get_transcribe_status(task_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8050)
 # Serve Static Files (Frontend) - Production Mode
 # When running in Docker, /app/dist will contain the built frontend
 # Fix: Register m4a mimetype explicitly to ensure browsers play it

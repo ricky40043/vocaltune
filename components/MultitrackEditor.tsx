@@ -8,7 +8,7 @@ import {
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
     ? (import.meta as any).env.VITE_API_URL
-    : 'http://localhost:8000';
+    : 'http://localhost:8050';
 
 // Track configuration
 const TRACK_CONFIG: Record<string, { label: string; color: string }> = {

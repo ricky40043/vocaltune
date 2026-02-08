@@ -18,7 +18,7 @@ fi
 
 # 停止現有服務
 echo "🔄 停止現有服務..."
-lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+lsof -ti:8050 | xargs kill -9 2>/dev/null || true
 lsof -ti:3000 | xargs kill -9 2>/dev/null || true
 lsof -ti:3001 | xargs kill -9 2>/dev/null || true
 
@@ -26,10 +26,10 @@ lsof -ti:3001 | xargs kill -9 2>/dev/null || true
 export SSL_CERT_FILE=$(cd "$BACKEND_DIR" && source venv/bin/activate && python -m certifi)
 
 # 啟動後端
-echo "🚀 啟動後端 API (port 8000)..."
+echo "🚀 啟動後端 API (port 8050)..."
 cd "$BACKEND_DIR"
 source venv/bin/activate
-uvicorn main:app --reload --host 0.0.0.0 --port 8000 &
+uvicorn main:app --reload --host 0.0.0.0 --port 8050 &
 BACKEND_PID=$!
 
 # 等待後端啟動
@@ -75,7 +75,7 @@ FRONTEND_PID=$!
 echo ""
 echo "✅ 服務已啟動！"
 echo "   前端: http://localhost:3000"
-echo "   後端: http://localhost:8000"
+echo "   後端: http://localhost:8050"
 echo ""
 echo "按 Ctrl+C 停止所有服務"
 

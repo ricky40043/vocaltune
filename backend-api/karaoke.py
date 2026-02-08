@@ -31,7 +31,14 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
         
         # 1. Acquire Input Video
         input_video_path = None
-        
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path and os.path.exists("/opt/homebrew/bin/ffmpeg"):
+            ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
+        if not ffmpeg_path:
+             logging.warning("FFmpeg not found in PATH or standard locations.")
+             # Fallback to rely on system PATH just in case
+             ffmpeg_path = "ffmpeg"
+
         if youtube_url:
             update_job_status(job_id, {"status": "downloading", "progress": 10, "message": "下載影片中..."})
             
@@ -116,16 +123,15 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
         # Demucs Output: work_dir / htdemucs_6s / source_audio / {vocals.wav, ...}
         
         cmd_demucs = [
-            "python3", "-m", "demucs.separate",
+            "python", "-u", "-m", "demucs",
             "-n", "htdemucs_6s",
+            "-d", "cpu",
             "--out", str(work_dir),
             str(extracted_audio)
         ]
         
-        # Demucs parsing logic (borrowed from main.py) usually needed for progress bars
-        # For separate module, we can simplify or duplicate logic.
-        # Simplification: Just run it. Progress is roughly simulated or block-waiting.
-        
+        logging.info(f"Starting Demucs: {' '.join(cmd_demucs)}")
+
         # Demucs parsing logic
         # Merge stderr to stdout to capture tqdm progress bars
         proc_demucs = await asyncio.create_subprocess_exec(
@@ -149,28 +155,30 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
             if len(full_log) > 1000:
                 full_log = full_log[-500:]
 
+            # Split by either newline or carriage return
             while '\n' in buffer or '\r' in buffer:
                 if '\n' in buffer:
                     line, buffer = buffer.split('\n', 1)
-                else:
+                elif '\r' in buffer:
                     line, buffer = buffer.split('\r', 1)
                 
                 line = line.strip()
                 if not line:
                     continue
                 
+                logging.debug(f"[Demucs] {line}")
+                
                 # Parse progress: e.g. " 45%|████... "
                 if "%" in line and "|" in line:
                     try:
                         percent_str = line.split('%')[0].strip()
-                        # Get last few chars
-                        percent_digits = percent_str[-3:]
-                        if percent_digits.isdigit():
-                            d_prog = int(percent_digits)
-                            # Map Demucs 0-100% to Overall 40-90%
-                            overall_prog = 40 + int(d_prog * 0.5)
+                        # Get last 3 chars
+                        percent = percent_str[-3:].strip()
+                        if percent.isdigit():
+                            d_prog = int(percent)
+                            # Map Demucs 0-100% to Overall 30-85% (Expanded range for better UX)
+                            overall_prog = 30 + int(d_prog * 0.55)
                             
-                            # Update more frequently for smoother UI
                             if overall_prog % 2 == 0:
                                 update_job_status(job_id, {
                                     "status": "separating", 
@@ -189,8 +197,19 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
         # 4. Mix Instrumental
         # Folder structure: work_dir/htdemucs_6s/source_audio/
         demucs_out = work_dir / "htdemucs_6s" / "source_audio"
+        
         if not demucs_out.exists():
-             raise Exception("找不到分離結果")
+             # Fallback: Try finding in alternative paths (recursive search)
+             logging.warning(f"Demucs output not found at {demucs_out}, searching recursively...")
+             possible_paths = list(work_dir.rglob("vocals.wav"))
+             if possible_paths:
+                 demucs_out = possible_paths[0].parent
+                 logging.info(f"Found Demucs output at: {demucs_out}")
+             else:
+                 # Debug: list all files
+                 all_files = list(work_dir.rglob("*"))
+                 logging.error(f"All files in work_dir: {all_files}")
+                 raise Exception("找不到分離結果 (Files not found)")
 
         # Stems: vocals, drums, bass, guitar, piano, other
         # We want everything EXCEPT vocals.
@@ -227,6 +246,35 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
              *cmd_mix, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         stdout, stderr = await proc_mix.communicate()
+
+        # Bonus: Process Vocals for Toggle Feature
+        vocals_wav = demucs_out / "vocals.wav"
+        vocals_mp3 = KARAOKE_DIR / f"{job_id}_vocals.mp3"
+        vocals_url = None
+
+        if vocals_wav.exists():
+            try:
+                update_job_status(job_id, {"status": "processing", "progress": 90, "message": "正在處理人聲音軌..."})
+                cmd_vocals = [
+                    ffmpeg_path, "-y",
+                    "-i", str(vocals_wav),
+                    "-vn", "-ar", "44100", "-ac", "2", "-b:a", "128k",
+                    str(vocals_mp3)
+                ]
+                logging.info(f"Processing Vocals: {' '.join(cmd_vocals)}")
+                proc_v = await asyncio.create_subprocess_exec(
+                    *cmd_vocals, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                stdout_v, stderr_v = await proc_v.communicate()
+                
+                if proc_v.returncode != 0:
+                     logging.error(f"Vocals FFmpeg failed: {stderr_v.decode()}")
+                elif vocals_mp3.exists():
+                    vocals_url = f"/files/karaoke/{job_id}_vocals.mp3"
+                    logging.info(f"Vocals ready at {vocals_url}")
+            except Exception as ve:
+                logging.error(f"Vocals processing error: {ve}")
+                # Don't fail the main job for this
 
         # 5. Remux with Video
         update_job_status(job_id, {"status": "processing", "progress": 95, "message": "正在輸出最終影片..."})
@@ -265,7 +313,8 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
             "status": "completed", 
             "progress": 100, 
             "message": "轉換完成！",
-            "file_url": f"/files/karaoke/{job_id}.mp4"
+            "file_url": f"/files/karaoke/{job_id}.mp4",
+            "vocals_url": vocals_url
         })
 
     except Exception as e:

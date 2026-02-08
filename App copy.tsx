@@ -1,3 +1,4 @@
+```
 import React, { useState } from 'react';
 import { Music, Download, ExternalLink, Layers, Youtube, FileAudio, ArrowRight, AlertTriangle, CheckCircle2, Search, Disc, Loader2, Music2, SplitSquareVertical } from 'lucide-react';
 import { getYouTubeID } from './utils/youtube';
@@ -6,7 +7,9 @@ import { LocalAISeparator } from './components/LocalAISeparator';
 import { Pitcher } from './components/Pitcher';
 
 // API Configuration
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
+    ? (import.meta as any).env.VITE_API_URL
+    : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8050` : 'http://localhost:8050');
 
 type TabType = 'source' | 'pitcher' | 'splitter';
 

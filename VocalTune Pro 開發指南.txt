@@ -143,7 +143,7 @@ celery -A tasks worker --loglevel=info --pool=solo
    3. 啟動 API (Terminal 2):
 cd backend-api
 export REDIS_URL="redis://localhost:6379/0"
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8050
 
    4. 啟動 Frontend (Terminal 3):
 cd frontend-client
