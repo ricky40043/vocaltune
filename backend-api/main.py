@@ -241,9 +241,18 @@ async def download_youtube_audio(job_id: str, youtube_url: str):
             "--extractor-args", "youtube:player_client=android",
             # Prevent hanging on infinite progress updates
             "--no-progress",
+            # Prevent hanging on infinite progress updates
+            "--no-progress",
             "--no-warnings",
-            youtube_url
         ]
+        
+        # Add Browser Cookies Support (Auto-detect Chrome)
+        # Check for cookies.txt first (manual override)
+        if (Path("cookies.txt").exists()):
+            cmd.extend(["--cookies", "cookies.txt"])
+            logging.info("Using cookies.txt for auth")
+
+        cmd.append(youtube_url)
         
         # ffmpeg is required for audio extraction
         if ffmpeg_path:
@@ -591,8 +600,59 @@ async def get_status(job_id: str):
     """查詢任務狀態"""
     status = get_job_status(job_id)
     
+    
+    # Auto-Restore: Check disk if memory is empty (server restart)
     if status.get("status") == "unknown":
-        raise HTTPException(status_code=404, detail="找不到此任務")
+        # 1. Check New Structure (YYYYMMDD/job_id/video.mp4)
+        # We don't know the date, so we search all subdirs
+        found_video = list(KARAOKE_DIR.rglob(f"{job_id}/video.mp4"))
+        
+        if found_video:
+            video_path = found_video[0] # e.g. karaoke_output/20260208/job_id/video.mp4
+            # Extract date from parent's parent usually, or just use path
+            # Path structure: KARAOKE_DIR / YYYYMMDD / job_id / video.mp4
+            try:
+                date_folder = video_path.parent.parent.name
+            except:
+                date_folder = "unknown"
+                
+            print(f"[Restore] Found existing job on disk (New Structure): {job_id}")
+            
+            restored_status = {
+                "status": "completed",
+                "progress": 100,
+                "message": "已從磁碟恢復",
+                "file_url": f"/files/karaoke/{date_folder}/{job_id}/video.mp4",
+            }
+            
+            # Check for vocals
+            vocals_path = video_path.parent / "vocals.mp3"
+            if vocals_path.exists():
+                restored_status["vocals_url"] = f"/files/karaoke/{date_folder}/{job_id}/vocals.mp3"
+                
+            update_job_status(job_id, restored_status)
+            status = restored_status
+            
+        else:
+            # 2. Check Legacy Structure (Root level)
+            karaoke_file = KARAOKE_DIR / f"{job_id}.mp4"
+            if karaoke_file.exists():
+                print(f"[Restore] Found existing job on disk (Legacy): {job_id}")
+                restored_status = {
+                    "status": "completed",
+                    "progress": 100,
+                    "message": "已從磁碟恢復 (舊版)",
+                    "file_url": f"/files/karaoke/{job_id}.mp4",
+                }
+                # Check for vocals
+                vocals_file = KARAOKE_DIR / f"{job_id}_vocals.mp3"
+                if vocals_file.exists():
+                    restored_status["vocals_url"] = f"/files/karaoke/{job_id}_vocals.mp3"
+                
+                update_job_status(job_id, restored_status)
+                status = restored_status
+            else:
+                raise HTTPException(status_code=404, detail="找不到此任務")
     
     return JobStatusResponse(
         job_id=job_id,
@@ -604,6 +664,40 @@ async def get_status(job_id: str):
         tracks=status.get("tracks"),
         error=status.get("error")
     )
+
+class HistoryItem(BaseModel):
+    job_id: str
+    title: str
+    date: str
+    youtube_url: Optional[str] = None
+
+@app.get("/api/karaoke/history", response_model=List[HistoryItem])
+async def get_history():
+    """取得卡拉OK轉檔紀錄"""
+    history = []
+    
+    # Recursively find all info.json files
+    # Structure: KARAOKE_DIR / YYYYMMDD / job_id / info.json
+    for info_file in KARAOKE_DIR.rglob("info.json"):
+        try:
+            with open(info_file, "r", encoding='utf-8') as f:
+                data = json.load(f)
+                
+                # Check if completed
+                if data.get("status") == "completed":
+                    history.append(HistoryItem(
+                        job_id=data.get("job_id"),
+                        title=data.get("title", "Unknown"),
+                        date=data.get("created_at", ""),
+                        youtube_url=data.get("youtube_url")
+                    ))
+        except Exception as e:
+            print(f"Error reading history file {info_file}: {e}")
+            continue
+            
+    # Sort by date descending (newest first)
+    history.sort(key=lambda x: x.date, reverse=True)
+    return history
 
 @app.post("/api/upload")
 async def upload_audio(file: UploadFile = File(...)):

@@ -14,6 +14,10 @@ KARAOKE_DIR = BASE_DIR / "karaoke_output"
 KARAOKE_DIR.mkdir(exist_ok=True)
 
 # Shared job updater callback
+import json
+from datetime import datetime
+
+# Shared job updater callback
 from job_store import update_job_status, job_status_store
 
 async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: str = None):
@@ -26,8 +30,19 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
     5. Remux processed audio with original video.
     """
     try:
-        work_dir = KARAOKE_DIR / job_id
-        work_dir.mkdir(exist_ok=True)
+        # Create Date-Based Directory Structure: YYYYMMDD/job_id
+        today_date = datetime.now().strftime("%Y%m%d")
+        # Base work dir remains same for temp processing, but final output goes to date folder
+        # Actually, let's keep everything self-contained in the date folder to avoid scatter
+        
+        # New Structure: karaoke_output/YYYYMMDD/job_id/
+        job_dir = KARAOKE_DIR / today_date / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        
+        work_dir = job_dir # Use this as work dir
+        
+        # Metadata
+        video_title = "Unknown Title"
         
         # 1. Acquire Input Video
         input_video_path = None
@@ -42,6 +57,23 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
         if youtube_url:
             update_job_status(job_id, {"status": "downloading", "progress": 10, "message": "下載影片中..."})
             
+            # Fetch Title First
+            try:
+                title_cmd = ["yt-dlp", "--get-title", youtube_url]
+                # Check for cookies (reuse logic)
+                if Path("cookies.txt").exists():
+                    title_cmd.extend(["--cookies", "cookies.txt"])
+                
+                proc_title = await asyncio.create_subprocess_exec(
+                    *title_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                t_out, t_err = await proc_title.communicate()
+                if proc_title.returncode == 0:
+                    video_title = t_out.decode().strip()
+                    logging.info(f"Fetched Title: {video_title}")
+            except Exception as e:
+                logging.warning(f"Failed to fetch title: {e}")
+
             # yt-dlp download (Best Video+Audio -> mp4)
             # Use strict temp filename to avoid weird character issues
             input_video_path = work_dir / "input.mp4"
@@ -53,13 +85,23 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
                 
             cmd = [
                 "yt-dlp",
-                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "-f", "bestvideo+bestaudio/best",
+                "--merge-output-format", "mp4",
                 "-o", str(input_video_path),
                 "--extractor-args", "youtube:player_client=android",
                 "--no-playlist",
+                "--no-playlist",
                 "--no-warnings",
             ]
-            
+
+            # Authentication: Try cookies.txt
+            if Path("cookies.txt").exists():
+                cmd.extend(["--cookies", "cookies.txt"])
+                logging.info("Using cookies.txt for authentication")
+            elif Path("../cookies.txt").exists():
+                cmd.extend(["--cookies", "../cookies.txt"])
+                logging.info("Using ../cookies.txt for authentication")
+
             if ffmpeg_path:
                 cmd.extend(["--ffmpeg-location", ffmpeg_path])
                 
@@ -80,6 +122,7 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
                 
         elif file_path:
             update_job_status(job_id, {"status": "processing", "progress": 10, "message": "讀取影片中..."})
+            video_title = Path(file_path).stem # Use filename as title
             
             source_path = Path(file_path)
             if not source_path.exists():
@@ -93,6 +136,17 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
             
             input_video_path = work_dir / "input.mp4"
             shutil.copy(source_path, input_video_path)
+
+        # Save Metadata (info.json)
+        info_path = work_dir / "info.json"
+        with open(info_path, "w", encoding='utf-8') as f:
+            json.dump({
+                "job_id": job_id,
+                "title": video_title,
+                "youtube_url": youtube_url,
+                "created_at": datetime.now().isoformat(),
+                "status": "processing" # Will update to completed later
+            }, f, indent=4, ensure_ascii=False)
 
         # 2. Extract Audio for Demucs
         update_job_status(job_id, {"status": "separating", "progress": 30, "message": "正在準備音訊..."})
@@ -249,7 +303,7 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
 
         # Bonus: Process Vocals for Toggle Feature
         vocals_wav = demucs_out / "vocals.wav"
-        vocals_mp3 = KARAOKE_DIR / f"{job_id}_vocals.mp3"
+        vocals_mp3 = work_dir / "vocals.mp3" # Save inside job_dir
         vocals_url = None
 
         if vocals_wav.exists():
@@ -270,7 +324,9 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
                 if proc_v.returncode != 0:
                      logging.error(f"Vocals FFmpeg failed: {stderr_v.decode()}")
                 elif vocals_mp3.exists():
-                    vocals_url = f"/files/karaoke/{job_id}_vocals.mp3"
+                    # URL structure: /files/karaoke/YYYYMMDD/job_id/vocals.mp3
+                    # We need to expose this new path structure in main.py later
+                    vocals_url = f"/files/karaoke/{today_date}/{job_id}/vocals.mp3"
                     logging.info(f"Vocals ready at {vocals_url}")
             except Exception as ve:
                 logging.error(f"Vocals processing error: {ve}")
@@ -279,41 +335,48 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
         # 5. Remux with Video
         update_job_status(job_id, {"status": "processing", "progress": 95, "message": "正在輸出最終影片..."})
         
-        final_output = KARAOKE_DIR / f"{job_id}.mp4"
+        final_output = work_dir / "video.mp4" # Rename to generic video.mp4 inside folder
         
         # Merge Original Video (no audio) + Instrumental Audio
         cmd_remux = [
-            "ffmpeg", "-y",
+            ffmpeg_path, "-y",
             "-i", str(input_video_path),
             "-i", str(instrumental_wav),
-            "-c:v", "copy",        # Copy video stream (fast!)
-            "-c:a", "aac",         # Encode audio to AAC
-            "-b:a", "256k",
-            "-map", "0:v:0",       # Use video from input 0
-            "-map", "1:a:0",       # Use audio from input 1
-            "-shortest",           # Cut to shortest duration
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-shortest", 
             str(final_output)
         ]
         
         proc_remux = await asyncio.create_subprocess_exec(
-             *cmd_remux, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            *cmd_remux, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         stdout, stderr = await proc_remux.communicate()
         
-        if not final_output.exists():
-             raise Exception("影片合成失敗")
-             
-        # Cleanup work dir
-        try:
-             shutil.rmtree(work_dir)
-        except:
-             pass
+        if proc_remux.returncode != 0:
+             logging.error(f"FFmpeg Remux failed: {stderr.decode()}")
+             raise Exception("最終合成失敗")
 
+        # Cleanup (Optional - keep source for debugging or space saving?)
+        # shutil.rmtree(demucs_out.parent) 
+        
+        # Update Info JSON
+        info_path = work_dir / "info.json"
+        if info_path.exists():
+            with open(info_path, "r+", encoding='utf-8') as f:
+                data = json.load(f)
+                data["status"] = "completed"
+                f.seek(0)
+                json.dump(data, f, indent=4, ensure_ascii=False)
+                f.truncate()
+        
         update_job_status(job_id, {
-            "status": "completed", 
-            "progress": 100, 
+            "status": "completed",
+            "progress": 100,
             "message": "轉換完成！",
-            "file_url": f"/files/karaoke/{job_id}.mp4",
+            "file_url": f"/files/karaoke/{today_date}/{job_id}/video.mp4",
             "vocals_url": vocals_url
         })
 

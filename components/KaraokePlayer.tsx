@@ -32,29 +32,44 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
     const vocalsRef = useRef<HTMLAudioElement>(null);
 
     // Sync Logic
+    // Sync Logic
     useEffect(() => {
         const video = videoRef.current;
         const vocals = vocalsRef.current;
         if (!video || !vocals || !vocalsUrl) return;
 
         const sync = () => {
-            if (Math.abs(vocals.currentTime - video.currentTime) > 0.1) {
+            // Only sync if video is playing to avoid fighting with user seeking
+            if (!video.paused && Math.abs(vocals.currentTime - video.currentTime) > 0.2) {
                 vocals.currentTime = video.currentTime;
             }
         };
 
         const onPlay = () => vocals.play().catch(e => console.log("Vocals play error", e));
         const onPause = () => vocals.pause();
-        const onSeeking = () => { vocals.currentTime = video.currentTime; };
+
+        // When seeking starts, pause vocals to prevent "stuttering" or rapid updates
+        const onSeeking = () => {
+            vocals.pause();
+        };
+
+        // When seeking ends, assume the new time and resume if video is playing
+        const onSeeked = () => {
+            vocals.currentTime = video.currentTime;
+            if (!video.paused) {
+                vocals.play().catch(e => console.log("Vocals seek-play error", e));
+            }
+        };
+
         const onRateChange = () => { vocals.playbackRate = video.playbackRate; };
 
-        // Sync more aggressively during playback
+        // Sync interval
         const interval = setInterval(sync, 500);
 
         video.addEventListener('play', onPlay);
         video.addEventListener('pause', onPause);
         video.addEventListener('seeking', onSeeking);
-        video.addEventListener('seeked', onSeeking);
+        video.addEventListener('seeked', onSeeked);
         video.addEventListener('ratechange', onRateChange);
         video.addEventListener('waiting', onPause);
         video.addEventListener('playing', onPlay);
@@ -64,12 +79,12 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
             video.removeEventListener('play', onPlay);
             video.removeEventListener('pause', onPause);
             video.removeEventListener('seeking', onSeeking);
-            video.removeEventListener('seeked', onSeeking);
+            video.removeEventListener('seeked', onSeeked);
             video.removeEventListener('ratechange', onRateChange);
             video.removeEventListener('waiting', onPause);
             video.removeEventListener('playing', onPlay);
         };
-    }, [vocalsUrl, status]);
+    }, [vocalsUrl, videoUrl, status]); // Added videoUrl dependency
 
     // Handle Vocal Muting
     useEffect(() => {
@@ -83,8 +98,6 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
     const startProcessing = async () => {
         setStatus('processing');
         setProgress(0);
-        setMessage('正在初始化...');
-        setError(null);
         setMessage('正在初始化...');
         setError(null);
         setVideoUrl(null);
@@ -130,11 +143,28 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
             const data = await res.json();
             setJobId(data.job_id);
 
+            // Update URL with jobId
+            const newUrl = new URL(window.location.href);
+            newUrl.searchParams.set('jobId', data.job_id);
+            window.history.pushState({}, '', newUrl.toString());
+
         } catch (e: any) {
             setError(e.message);
             setStatus('error');
         }
     };
+
+    // Load from URL on Mount
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const urlJobId = params.get('jobId');
+        if (urlJobId && !jobId) { // Only set if not already set
+            console.log("Found Job ID in URL:", urlJobId);
+            setJobId(urlJobId);
+            setStatus('processing'); // Trigger polling
+            setMessage('正在恢復任務狀態...');
+        }
+    }, []); // Run once on mount
 
     // Poll Status
     useEffect(() => {
@@ -143,6 +173,23 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
         const interval = setInterval(async () => {
             try {
                 const res = await fetch(`${API_BASE_URL}/api/status/${jobId}`);
+
+                // Handle 404 (Job Expired/Server Restarted)
+                if (res.status === 404) {
+                    console.warn("Job not found (404). Clearing state.");
+                    setJobId(null);
+                    setStatus('idle');
+                    setError("任務已過期或伺服器已重啟，請重新開始");
+
+                    // Remove invalid jobId from URL
+                    const newUrl = new URL(window.location.href);
+                    newUrl.searchParams.delete('jobId');
+                    window.history.replaceState({}, '', newUrl.toString());
+
+                    clearInterval(interval);
+                    return;
+                }
+
                 if (!res.ok) return;
                 const data = await res.json();
 
@@ -292,11 +339,13 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                 <div className="space-y-6 animate-fade-in">
                     <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-2xl relative group">
                         <video
+                            key={videoUrl} // Force re-mount when URL changes to ensure clean state
                             ref={videoRef}
                             src={videoUrl}
                             className="w-full h-full object-contain"
                             controls
                             playsInline
+                            preload="metadata"
                         />
                         {/* Audio Player for Syncing Vocals */}
                         {vocalsUrl && (
@@ -355,6 +404,108 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                     </div>
                 </div>
             )}
+            {/* History Sidebar */}
+            <KaraokeHistory
+                currentJobId={jobId}
+                onSelect={(id) => {
+                    // Load Job Logic
+                    console.log("Loading Checkpoint:", id);
+                    setJobId(id);
+                    // Update URL
+                    const newUrl = new URL(window.location.href);
+                    newUrl.searchParams.set('jobId', id);
+                    window.history.pushState({}, '', newUrl.toString());
+                    // Force Status Reset to trigger poll
+                    setStatus('processing');
+                    setMessage('正在讀取紀錄...');
+                    setVideoUrl(null);
+                    setVocalsUrl(null);
+                }}
+            />
+        </div>
+    );
+};
+
+// Extracted History Component for Cleaner Code
+interface HistoryItem {
+    job_id: string;
+    title: string;
+    date: string;
+    youtube_url?: string;
+}
+
+export const KaraokeHistory: React.FC<{
+    onSelect: (jobId: string) => void;
+    currentJobId: string | null;
+}> = ({ onSelect, currentJobId }) => {
+    const [history, setHistory] = useState<HistoryItem[]>([]);
+    const [isOpen, setIsOpen] = useState(false); // Default collapsed
+
+    // Fetch History
+    useEffect(() => {
+        fetch(`${API_BASE_URL}/api/karaoke/history`)
+            .then(res => res.json())
+            .then(data => setHistory(data))
+            .catch(e => console.error("Failed to load history", e));
+    }, [currentJobId, isOpen]); // Reload when opens or job changes
+
+    if (!isOpen) {
+        return (
+            <button
+                onClick={() => setIsOpen(true)}
+                className="fixed right-0 top-1/2 transform -translate-y-1/2 bg-gray-800 p-2 rounded-l-lg shadow-lg hover:bg-gray-700 transition z-40 border-l border-t border-b border-gray-600 group"
+                title="歷史紀錄"
+            >
+                <div className="writing-vertical-lr text-gray-400 group-hover:text-white font-medium tracking-widest py-2">
+                    歷史紀錄
+                </div>
+            </button>
+        );
+    }
+
+    return (
+        <div className="fixed right-0 top-0 h-full w-80 bg-gray-900 border-l border-gray-800 shadow-2xl z-50 transform transition-transform duration-300 ease-in-out overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-gray-800 bg-gray-900/95 backdrop-blur flex justify-between items-center">
+                <h3 className="text-white font-bold text-lg">歷史紀錄</h3>
+                <button
+                    onClick={() => setIsOpen(false)}
+                    className="text-gray-400 hover:text-white"
+                >
+                    ✕
+                </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {history.length === 0 ? (
+                    <div className="text-gray-500 text-center py-8">
+                        暫無紀錄
+                    </div>
+                ) : (
+                    history.map(item => (
+                        <div
+                            key={item.job_id}
+                            onClick={() => {
+                                onSelect(item.job_id);
+                                // Optional: close on select? setIsOpen(false);
+                            }}
+                            className={`p-3 rounded-lg cursor-pointer transition border group items-start text-left ${currentJobId === item.job_id
+                                    ? 'bg-purple-900/40 border-purple-500/50'
+                                    : 'bg-gray-800 border-gray-700 hover:border-gray-500'
+                                }`}
+                        >
+                            <div className="text-white font-medium line-clamp-2 text-sm mb-1 group-hover:text-purple-300 transition-colors">
+                                {item.title || "Unknown Title"}
+                            </div>
+                            <div className="flex justify-between items-center text-xs text-gray-500">
+                                <span>{new Date(item.date).toLocaleDateString()}</span>
+                                <span className="font-mono text-[10px] bg-gray-700 px-1 rounded text-gray-400">
+                                    {item.job_id ? item.job_id.slice(0, 8) : '???'}
+                                </span>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
         </div>
     );
 };
