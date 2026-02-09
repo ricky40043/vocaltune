@@ -18,8 +18,37 @@ const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any)
 type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber' | 'karaoke' | 'request';
 
 export default function App() {
-    // Tabs: 3 modules
-    const [activeTab, setActiveTab] = useState<TabType>('source');
+    // App Mode Configuration
+    const APP_MODE = (import.meta as any).env.VITE_APP_MODE || 'full'; // 'full' | 'main' | 'karaoke'
+
+    // Tab configuration
+    const allTabs: { key: TabType; icon: React.ReactNode; label: string; color: string }[] = [
+        { key: 'source', icon: <Download size={18} />, label: '音樂來源', color: 'from-purple-500 to-pink-500' },
+        { key: 'pitcher', icon: <Music2 size={18} />, label: '變調器', color: 'from-blue-500 to-cyan-500' },
+        { key: 'splitter', icon: <SplitSquareVertical size={18} />, label: '分離器', color: 'from-green-500 to-emerald-500' },
+        { key: 'transcriber', icon: <FileMusic size={18} />, label: '採譜', color: 'from-amber-500 to-orange-500' },
+        { key: 'karaoke', icon: <Music size={18} />, label: '卡拉OK', color: 'from-purple-600 to-indigo-600' },
+        { key: 'request', icon: <Loader2 size={18} />, label: '點歌', color: 'from-pink-500 to-rose-500' },
+    ];
+
+    const tabs = allTabs.filter(tab => {
+        if (APP_MODE === 'main') {
+            return ['source', 'pitcher', 'splitter', 'transcriber'].includes(tab.key);
+        }
+        if (APP_MODE === 'karaoke') {
+            return ['karaoke', 'request'].includes(tab.key);
+        }
+        return true; // full
+    });
+
+    // Check if initial tab is valid for current mode
+    const [activeTab, setActiveTab] = useState<TabType>(() => {
+        if (APP_MODE === 'karaoke') return 'request';
+        return 'source';
+    });
+
+    // Ensure activeTab is valid when mode changes (hm, mode won't change at runtime usually)
+    // But helpful if we switch env
 
     // URL Input State
     const [url, setUrl] = useState<string>('');
@@ -127,16 +156,6 @@ export default function App() {
         }
     };
 
-    // Tab configuration
-    const tabs: { key: TabType; icon: React.ReactNode; label: string; color: string }[] = [
-        { key: 'source', icon: <Download size={18} />, label: '音樂來源', color: 'from-purple-500 to-pink-500' },
-        { key: 'pitcher', icon: <Music2 size={18} />, label: '變調器', color: 'from-blue-500 to-cyan-500' },
-        { key: 'splitter', icon: <SplitSquareVertical size={18} />, label: '分離器', color: 'from-green-500 to-emerald-500' },
-        { key: 'transcriber', icon: <FileMusic size={18} />, label: '採譜', color: 'from-amber-500 to-orange-500' },
-        { key: 'karaoke', icon: <Music size={18} />, label: '卡拉OK', color: 'from-purple-600 to-indigo-600' },
-        { key: 'request', icon: <Loader2 size={18} />, label: '點歌', color: 'from-pink-500 to-rose-500' },
-    ];
-
     return (
         <div className="min-h-screen bg-brand-900 text-white pb-24 md:pb-12 font-sans selection:bg-brand-accent selection:text-white flex flex-col">
             {/* Header */}
@@ -147,7 +166,7 @@ export default function App() {
                             <Music size={18} className="text-white md:hidden" />
                             <Music size={22} className="text-white hidden md:block" />
                         </div>
-                        <h1 className="font-bold text-xl md:text-2xl tracking-tight">Vocal<span className="text-brand-glow">Tune</span></h1>
+                        <h1 className="font-bold text-xl md:text-2xl tracking-tight">Vocal<span className="text-brand-glow">Tune</span> <span className="text-xs align-top text-gray-500 ml-1">{APP_MODE === 'karaoke' ? 'KTV' : APP_MODE === 'main' ? 'Studio' : 'Pro'}</span></h1>
                     </div>
                     <div className="flex items-center gap-2 md:gap-4">
                         <div className="text-[10px] md:text-xs font-mono text-gray-400 bg-gray-800 px-2 py-1 rounded">v4.0</div>
@@ -155,9 +174,9 @@ export default function App() {
                 </div>
             </header>
 
-            {/* Tab Navigation - 3 Modules */}
+            {/* Tab Navigation */}
             <div className="sticky top-16 z-40 bg-brand-900/95 backdrop-blur-lg border-b border-gray-800">
-                <div className="max-w-7xl mx-auto px-2 md:px-6 flex">
+                <div className="max-w-7xl mx-auto px-2 md:px-6 flex justify-center">
                     {tabs.map((tab) => (
                         <button
                             key={tab.key}
@@ -181,11 +200,25 @@ export default function App() {
             <main className="flex-1 w-full px-4 md:px-6 lg:px-8 py-6 md:py-8">
 
                 {/* TAB 1: SOURCE - 音樂來源 */}
+                {/* Note: In 'karaoke' mode, 'source' is hidden but we might still need its state logic if it was shared. 
+                    React removes the DOM but state persists in component? No, component re-renders.
+                    For 'display: none', it persists.
+                    The original code used style={{ display: ... }}.
+                    So ALL components are MOUNTED.
+                    This is good for state persistence but might be weird if I hide the tab button.
+                    If I hide the tab button, user can't access it.
+                    I should probably only render the divs that match the mode too?
+                    Original code: <div style={{ display: activeTab === 'source' ? 'block' : 'none' }}>
+                    If I am in 'karaoke' mode, activeTab is 'request'. 'source' is 'none'.
+                    So it is hidden. That's fine.
+                */}
+
                 <div style={{ display: activeTab === 'source' ? 'block' : 'none' }} className="space-y-6 animate-fade-in max-w-7xl mx-auto">
-                    {/* Desktop: Two column layout */}
+                    {/* ... Source Tab Content ... */}
                     <div className="md:grid md:grid-cols-2 md:gap-8 space-y-6 md:space-y-0">
                         {/* YouTube Input */}
                         <div className={`bg-brand-800/50 rounded-2xl p-5 md:p-6 border shadow-lg relative overflow-hidden transition-colors duration-300 ${urlError ? 'border-red-500/50 bg-red-900/10' : 'border-gray-700/50'}`}>
+                            {/* ... (Keep existing content) ... */}
                             <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${urlError ? 'from-red-500 via-orange-500 to-red-500' : 'from-blue-500 via-brand-accent to-pink-500'}`}></div>
                             <h2 className={`text-lg md:text-xl font-bold mb-4 flex items-center gap-2 ${urlError ? 'text-red-400' : 'text-white'}`}>
                                 {urlError ? <AlertTriangle className="animate-bounce" /> : <Youtube className="text-red-500" />}
@@ -303,12 +336,16 @@ export default function App() {
                                     >
                                         <SplitSquareVertical size={18} /> 分離器
                                     </button>
-                                    <button
-                                        onClick={() => setActiveTab('karaoke')}
-                                        className="flex-1 flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white py-3 md:py-4 rounded-xl font-bold transition-all"
-                                    >
-                                        <Music size={18} /> 卡拉OK
-                                    </button>
+
+                                    {/* Hide Karaoke button if not in karaoke/full mode */}
+                                    {APP_MODE !== 'main' && (
+                                        <button
+                                            onClick={() => setActiveTab('karaoke')}
+                                            className="flex-1 flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white py-3 md:py-4 rounded-xl font-bold transition-all"
+                                        >
+                                            <Music size={18} /> 卡拉OK
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>

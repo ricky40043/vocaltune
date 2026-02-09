@@ -20,7 +20,7 @@ fi
 echo "🔄 停止現有服務..."
 lsof -ti:8050 | xargs kill -9 2>/dev/null || true
 lsof -ti:3000 | xargs kill -9 2>/dev/null || true
-lsof -ti:3001 | xargs kill -9 2>/dev/null || true
+lsof -ti:3050 | xargs kill -9 2>/dev/null || true
 
 # 設定 SSL 憑證 (Mac 需要)
 export SSL_CERT_FILE=$(cd "$BACKEND_DIR" && source venv/bin/activate && python -m certifi)
@@ -28,54 +28,66 @@ export SSL_CERT_FILE=$(cd "$BACKEND_DIR" && source venv/bin/activate && python -
 # 啟動後端
 echo "🚀 啟動後端 API (port 8050)..."
 cd "$BACKEND_DIR"
-source venv/bin/activate
+if [ -f "venv/bin/activate" ]; then
+    source venv/bin/activate
+fi
 uvicorn main:app --reload --host 0.0.0.0 --port 8050 &
 BACKEND_PID=$!
 
 # 等待後端啟動
 sleep 2
 
-# 啟動前端
-echo "🚀 啟動前端 (port 3000)..."
+# 啟動前端 (Main App & Karaoke App)
+echo "🚀 啟動前端服務..."
 cd "$PROJECT_DIR"
 
-# 嘗試找到 NVM 的 Node 18 路徑
+# 嘗試找到 NVM 的 Node 18 路徑 (保持原有邏輯)
 NODE_BIN=""
-
 if [ -d "$HOME/.nvm/versions/node" ]; then
-    # 尋找 v18 開頭的資料夾
     NODE_18_DIR=$(find "$HOME/.nvm/versions/node" -maxdepth 1 -name "v18*" | sort -r | head -n 1)
     if [ -n "$NODE_18_DIR" ]; then
         NODE_BIN="$NODE_18_DIR/bin/node"
         echo "✅ Found Node 18 at: $NODE_BIN"
     fi
 fi
-
-# 如果找不到 NVM 的 Node 18，嘗試使用 PATH 中的 node
 if [ -z "$NODE_BIN" ]; then
     NODE_BIN=$(command -v node)
-    echo "⚠️  Could not find NVM Node 18, using system node: $NODE_BIN"
+    echo "⚠️  Using system node: $NODE_BIN"
 fi
 
 echo "Using Node version: $($NODE_BIN -v)"
 
-# 使用指定的 node 執行 vite js 檔案
-# 通常 vite 的進入點是 node_modules/vite/bin/vite.js
 VITE_BIN="$PROJECT_DIR/node_modules/vite/bin/vite.js"
 
 if [ -f "$VITE_BIN" ]; then
-    "$NODE_BIN" "$VITE_BIN" &
+    # Main App (Port 3000) - Source, Pitcher, Splitter, Transcriber
+    echo "   Running Studio Mode on :3000"
+    VITE_APP_MODE=main "$NODE_BIN" "$VITE_BIN" --port 3000 &
+    FRONTEND_MAIN_PID=$!
+
+    # Karaoke App (Port 3050) - Karaoke, Request
+    echo "   Running Karaoke Mode on :3050"
+    VITE_APP_MODE=karaoke "$NODE_BIN" "$VITE_BIN" --port 3050 &
+    FRONTEND_KTV_PID=$!
 else
-    # Fallback to npx if direct path fails (less likely to handle version correctly but better than nothing)
-    echo "⚠️  Vite binary not found at $VITE_BIN, falling back to npm run dev"
-    npm run dev &
+    echo "⚠️  Vite binary not found, falling back to npm run dev"
+    VITE_APP_MODE=main npm run dev -- --port 3000 &
+    FRONTEND_MAIN_PID=$!
+    
+    VITE_APP_MODE=karaoke npm run dev -- --port 3050 &
+    FRONTEND_KTV_PID=$!
 fi
-FRONTEND_PID=$!
 
 echo ""
 echo "✅ 服務已啟動！"
-echo "   前端: http://localhost:3000"
-echo "   後端: http://localhost:8050"
+echo "   🎛️  VocalTune Studio: http://localhost:3000 (製作/採譜)"
+echo "   🎤 VocalTune KTV:    http://localhost:3050 (點歌/歡唱)"
+echo "   🔌 Backend API:      http://localhost:8050"
+echo ""
+echo "按 Ctrl+C 停止所有服務"
+
+# 等待中斷訊號
+trap "echo ''; echo '🛑 停止服務...'; kill $BACKEND_PID $FRONTEND_MAIN_PID $FRONTEND_KTV_PID 2>/dev/null; exit 0" SIGINT SIGTERM
 echo ""
 echo "按 Ctrl+C 停止所有服務"
 
