@@ -223,199 +223,211 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
     }, [jobId, status]);
 
     return (
-        <div className="w-full max-w-4xl mx-auto p-4 bg-gray-900 rounded-xl border border-gray-800 shadow-2xl">
-            {/* Header */}
-            <div className="flex items-center space-x-3 mb-6">
-                <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center shadow-lg shadow-purple-900/50">
-                    <Mic className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                    <h2 className="text-xl font-bold text-white tracking-tight">卡拉OK 影片製作</h2>
-                    <p className="text-gray-400 text-sm">自動去除人聲並合成伴奏影片，隨時歡唱！</p>
-                </div>
-            </div>
-
-            {/* Input Section */}
-            {status === 'idle' || status === 'error' ? (
-                <div className="space-y-6 animate-fade-in">
-
-                    {/* YouTube Source Option */}
-                    {youtubeUrl && (
-                        <div className="bg-gray-800/50 p-4 rounded-lg border border-purple-500/30">
-                            <div className="flex items-center space-x-3 mb-2">
-                                <Youtube className="w-5 h-5 text-red-500" />
-                                <span className="text-gray-200 font-medium">使用目前的 YouTube 連結</span>
-                            </div>
-                            <div className="text-sm text-gray-500 truncate mb-4 pl-8">{youtubeUrl}</div>
-                            <button
-                                onClick={() => { setLocalFile(null); startProcessing(); }}
-                                className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-bold transition flex items-center justify-center space-x-2 shadow-lg shadow-purple-900/40"
-                            >
-                                <Mic className="w-5 h-5" />
-                                <span>一鍵製作卡拉OK</span>
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Divider */}
-                    {youtubeUrl && (
-                        <div className="relative py-2">
-                            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-800"></div></div>
-                            <div className="relative flex justify-center"><span className="bg-gray-900 px-3 text-sm text-gray-500">或</span></div>
-                        </div>
-                    )}
-
-                    {/* Local File Option */}
-                    <div className="border-2 border-dashed border-gray-700 rounded-xl p-8 text-center hover:border-gray-500 transition-colors bg-gray-800/20">
-                        <input
-                            type="file"
-                            accept="video/*,audio/*"
-                            className="hidden"
-                            id="karaoke-upload"
-                            onChange={(e) => {
-                                if (e.target.files?.[0]) {
-                                    setLocalFile(e.target.files[0]);
-                                    // Clear youtube url conceptually if user picks file? 
-                                    // Actually better to handle precedence in startProcessing
-                                }
-                            }}
-                        />
-                        <label htmlFor="karaoke-upload" className="cursor-pointer flex flex-col items-center">
-                            <Upload className="w-12 h-12 text-gray-500 mb-3" />
-                            <span className="text-gray-300 font-medium mb-1">
-                                {localFile ? localFile.name : "上傳本機影片/音訊"}
-                            </span>
-                            <span className="text-gray-500 text-sm">支援 MP4, MOV, MP3...</span>
-                        </label>
-                        {localFile && (
-                            <button
-                                onClick={() => { startProcessing(); }}
-                                className="mt-4 px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-full font-medium transition"
-                            >
-                                開始處理
-                            </button>
-                        )}
-                    </div>
-                </div>
-            ) : null}
-
-            {/* Error Message */}
-            {error && (
-                <div className="mt-4 p-4 bg-red-900/30 border border-red-800/50 rounded-lg flex items-center space-x-3 text-red-200 animate-slide-up">
-                    <div className="bg-red-900/50 p-2 rounded-full"><Loader2 className="w-4 h-4" /></div> {/* Reusing icon, maybe AlertCircle better */}
-                    <span>{error}</span>
-                </div>
-            )}
-
-            {/* Processing State */}
-            {status === 'processing' && (
-                <div className="py-12 text-center space-y-4 animate-fade-in">
-                    <div className="relative w-20 h-20 mx-auto">
-                        <div className="absolute inset-0 border-4 border-gray-700 rounded-full"></div>
-                        <div
-                            className="absolute inset-0 border-4 border-purple-500 rounded-full border-t-transparent animate-spin"
-                            style={{ animationDuration: '2s' }}
-                        ></div>
-                        <Mic className="absolute inset-0 m-auto w-8 h-8 text-purple-400 animate-pulse" />
+        <div className="w-full p-6 flex flex-col lg:flex-row gap-6 items-start">
+            {/* Left Side: Main Player Content */}
+            <div className="flex-1 w-full min-w-0 bg-gray-900 rounded-xl border border-gray-800 shadow-2xl p-6">
+                {/* Header */}
+                <div className="flex items-center space-x-3 mb-6">
+                    <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center shadow-lg shadow-purple-900/50">
+                        <Mic className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                        <h3 className="text-xl font-bold text-white mb-1">{message}</h3>
-                        <div className="text-purple-400 font-mono text-lg">{progress}%</div>
+                        <h2 className="text-xl font-bold text-white tracking-tight">卡拉OK 影片製作</h2>
+                        <p className="text-gray-400 text-sm">自動去除人聲並合成伴奏影片，隨時歡唱！</p>
                     </div>
-                    <div className="w-full max-w-md mx-auto bg-gray-800 rounded-full h-2 overflow-hidden mt-4">
-                        <div
-                            className="h-full bg-gradient-to-r from-purple-600 to-blue-500 transition-all duration-500 ease-out"
-                            style={{ width: `${progress}%` }}
-                        ></div>
-                    </div>
-                    <p className="text-gray-500 text-sm max-w-sm mx-auto pt-2">
-                        正在進行 AI 音軌分離與影像合成，這可能需要幾分鐘...
-                    </p>
                 </div>
-            )}
 
-            {/* Completed State (Video Player) */}
-            {status === 'completed' && videoUrl && (
-                <div className="space-y-6 animate-fade-in">
-                    <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-2xl relative group">
-                        <video
-                            key={videoUrl} // Force re-mount when URL changes to ensure clean state
-                            ref={videoRef}
-                            src={videoUrl}
-                            className="w-full h-full object-contain"
-                            controls
-                            playsInline
-                            preload="metadata"
-                        />
-                        {/* Audio Player for Syncing Vocals */}
-                        {vocalsUrl && (
-                            <audio ref={vocalsRef} src={vocalsUrl} className="hidden" preload="auto" />
+                {/* Input Section */}
+                {status === 'idle' || status === 'error' ? (
+                    <div className="space-y-6 animate-fade-in">
+                        {/* YouTube Source Option */}
+                        {youtubeUrl && (
+                            <div className="bg-gray-800/50 p-4 rounded-lg border border-purple-500/30">
+                                <div className="flex items-center space-x-3 mb-2">
+                                    <Youtube className="w-5 h-5 text-red-500" />
+                                    <span className="text-gray-200 font-medium">使用目前的 YouTube 連結</span>
+                                </div>
+                                <div className="text-sm text-gray-500 truncate mb-4 pl-8">{youtubeUrl}</div>
+                                <button
+                                    onClick={() => { setLocalFile(null); startProcessing(); }}
+                                    className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-bold transition flex items-center justify-center space-x-2 shadow-lg shadow-purple-900/40"
+                                >
+                                    <Mic className="w-5 h-5" />
+                                    <span>一鍵製作卡拉OK</span>
+                                </button>
+                            </div>
                         )}
-                    </div>
 
-                    {/* Controls Bar */}
-                    <div className="bg-gray-800 rounded-lg p-4 flex items-center justify-between border border-gray-700">
-                        <div className="flex items-center space-x-4">
-                            {/* Vocal Toggle */}
-                            <label className="flex items-center space-x-3 cursor-pointer select-none group">
-                                <div className="relative">
-                                    <input
-                                        type="checkbox"
-                                        checked={playVocals}
-                                        onChange={(e) => setPlayVocals(e.target.checked)}
-                                        className="sr-only peer"
-                                        disabled={!vocalsUrl}
-                                    />
-                                    <div className="w-12 h-7 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-purple-600"></div>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    {playVocals ? <Mic className="w-5 h-5 text-purple-400" /> : <MicOff className="w-5 h-5 text-gray-400" />}
-                                    <span className={`font-bold transition-colors ${playVocals ? 'text-white' : 'text-gray-400'}`}>
-                                        {playVocals ? "人聲播放中" : "人聲已靜音"}
-                                    </span>
-                                </div>
+                        {/* Divider */}
+                        {youtubeUrl && (
+                            <div className="relative py-2">
+                                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-800"></div></div>
+                                <div className="relative flex justify-center"><span className="bg-gray-900 px-3 text-sm text-gray-500">或</span></div>
+                            </div>
+                        )}
+
+                        {/* Local File Option */}
+                        <div className="border-2 border-dashed border-gray-700 rounded-xl p-8 text-center hover:border-gray-500 transition-colors bg-gray-800/20">
+                            <input
+                                type="file"
+                                accept="video/*,audio/*"
+                                className="hidden"
+                                id="karaoke-upload"
+                                onChange={(e) => {
+                                    if (e.target.files?.[0]) {
+                                        setLocalFile(e.target.files[0]);
+                                    }
+                                }}
+                            />
+                            <label htmlFor="karaoke-upload" className="cursor-pointer flex flex-col items-center">
+                                <Upload className="w-12 h-12 text-gray-500 mb-3" />
+                                <span className="text-gray-300 font-medium mb-1">
+                                    {localFile ? localFile.name : "上傳本機影片/音訊"}
+                                </span>
+                                <span className="text-gray-500 text-sm">支援 MP4, MOV, MP3...</span>
                             </label>
-                        </div>
-
-                        {/* Status Indicator */}
-                        <div className="flex items-center space-x-2 text-sm text-gray-400">
-                            <div className={`w-2 h-2 rounded-full ${vocalsUrl ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500'}`}></div>
-                            <span title={!vocalsUrl && status === 'completed' ? "後端未能產生人聲音軌" : ""}>
-                                {vocalsUrl ? "人聲軌道已同步" : (status === 'completed' ? "人聲軌道無法使用" : "人聲軌道準備中...")}
-                            </span>
+                            {localFile && (
+                                <button
+                                    onClick={() => { startProcessing(); }}
+                                    className="mt-4 px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-full font-medium transition"
+                                >
+                                    開始處理
+                                </button>
+                            )}
                         </div>
                     </div>
+                ) : null}
 
-                    <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                        <a
-                            href={videoUrl}
-                            download={`karaoke_output_${jobId}.mp4`}
-                            className="flex-1 flex items-center justify-center space-x-2 py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition border border-gray-700 font-medium"
-                        >
-                            <Download className="w-5 h-5" />
-                            <span>下載影片</span>
-                        </a>
-                        <button
-                            onClick={() => { setStatus('idle'); setJobId(null); setVideoUrl(null); }}
-                            className="flex-1 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition font-medium shadow-lg shadow-purple-900/30"
-                        >
-                            製作下一首
-                        </button>
+                {/* Error Message */}
+                {error && (
+                    <div className="mt-4 p-4 bg-red-900/30 border border-red-800/50 rounded-lg flex items-center space-x-3 text-red-200 animate-slide-up">
+                        <div className="bg-red-900/50 p-2 rounded-full"><Loader2 className="w-4 h-4" /></div>
+                        <span>{error}</span>
                     </div>
-                </div>
-            )}
-            {/* History Sidebar */}
-            <KaraokeHistory
+                )}
+
+                {/* Processing State */}
+                {status === 'processing' && (
+                    <div className="py-12 text-center space-y-4 animate-fade-in">
+                        <div className="relative w-20 h-20 mx-auto">
+                            <div className="absolute inset-0 border-4 border-gray-700 rounded-full"></div>
+                            <div
+                                className="absolute inset-0 border-4 border-purple-500 rounded-full border-t-transparent animate-spin"
+                                style={{ animationDuration: '2s' }}
+                            ></div>
+                            <Mic className="absolute inset-0 m-auto w-8 h-8 text-purple-400 animate-pulse" />
+                        </div>
+                        <div>
+                            <h3 className="text-xl font-bold text-white mb-1">{message}</h3>
+                            <div className="text-purple-400 font-mono text-lg">{progress}%</div>
+                        </div>
+                        <div className="w-full max-w-md mx-auto bg-gray-800 rounded-full h-2 overflow-hidden mt-4">
+                            <div
+                                className="h-full bg-gradient-to-r from-purple-600 to-blue-500 transition-all duration-500 ease-out"
+                                style={{ width: `${progress}%` }}
+                            ></div>
+                        </div>
+                        <p className="text-gray-500 text-sm max-w-sm mx-auto pt-2">
+                            正在進行 AI 音軌分離與影像合成，這可能需要幾分鐘...
+                        </p>
+                    </div>
+                )}
+
+                {/* Completed State (Video Player) */}
+                {status === 'completed' && videoUrl && (
+                    <div className="space-y-6 animate-fade-in">
+                        <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-2xl relative group">
+                            <video
+                                key={videoUrl}
+                                ref={videoRef}
+                                src={videoUrl}
+                                className="w-full h-full object-contain"
+                                controls
+                                playsInline
+                                preload="metadata"
+                            />
+                            {vocalsUrl && (
+                                <audio ref={vocalsRef} src={vocalsUrl} className="hidden" preload="auto" />
+                            )}
+                        </div>
+
+                        {/* Controls Bar */}
+                        <div className="bg-gray-800 rounded-lg p-4 flex items-center justify-between border border-gray-700">
+                            <div className="flex items-center space-x-4">
+                                {/* Vocal Toggle */}
+                                <label className="flex items-center space-x-3 cursor-pointer select-none group">
+                                    <div className="relative">
+                                        <input
+                                            type="checkbox"
+                                            checked={playVocals}
+                                            onChange={(e) => setPlayVocals(e.target.checked)}
+                                            className="sr-only peer"
+                                            disabled={!vocalsUrl}
+                                        />
+                                        <div className="w-12 h-7 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-purple-600"></div>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        {playVocals ? <Mic className="w-5 h-5 text-purple-400" /> : <MicOff className="w-5 h-5 text-gray-400" />}
+                                        <span className={`font-bold transition-colors ${playVocals ? 'text-white' : 'text-gray-400'}`}>
+                                            {playVocals ? "人聲播放中" : "人聲已靜音"}
+                                        </span>
+                                    </div>
+                                </label>
+                            </div>
+                            <div className="flex items-center space-x-2 text-sm text-gray-400">
+                                <div className={`w-2 h-2 rounded-full ${vocalsUrl ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500'}`}></div>
+                                <span title={!vocalsUrl && status === 'completed' ? "後端未能產生人聲音軌" : ""}>
+                                    {vocalsUrl ? "人聲軌道已同步" : (status === 'completed' ? "人聲軌道無法使用" : "人聲軌道準備中...")}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                            <a
+                                href={videoUrl}
+                                download={`karaoke_output_${jobId}.mp4`}
+                                className="flex-1 flex items-center justify-center space-x-2 py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition border border-gray-700 font-medium"
+                            >
+                                <Download className="w-5 h-5" />
+                                <span>下載影片</span>
+                            </a>
+                            <button
+                                onClick={() => { setStatus('idle'); setJobId(null); setVideoUrl(null); }}
+                                className="flex-1 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition font-medium shadow-lg shadow-purple-900/30"
+                            >
+                                製作下一首
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Right Side: History Sidebar (Desktop) */}
+            <div className="hidden lg:block w-80 shrink-0">
+                <KaraokeHistory
+                    currentJobId={jobId}
+                    onSelect={(id) => {
+                        console.log("Loading Checkpoint:", id);
+                        setJobId(id);
+                        const newUrl = new URL(window.location.href);
+                        newUrl.searchParams.set('jobId', id);
+                        window.history.pushState({}, '', newUrl.toString());
+                        setStatus('processing');
+                        setMessage('正在讀取紀錄...');
+                        setVideoUrl(null);
+                        setVocalsUrl(null);
+                    }}
+                />
+            </div>
+
+            {/* Mobile History FAB & Modal */}
+            <MobileHistoryDrawer
                 currentJobId={jobId}
                 onSelect={(id) => {
-                    // Load Job Logic
-                    console.log("Loading Checkpoint:", id);
                     setJobId(id);
-                    // Update URL
                     const newUrl = new URL(window.location.href);
                     newUrl.searchParams.set('jobId', id);
                     window.history.pushState({}, '', newUrl.toString());
-                    // Force Status Reset to trigger poll
                     setStatus('processing');
                     setMessage('正在讀取紀錄...');
                     setVideoUrl(null);
@@ -426,7 +438,56 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
     );
 };
 
+// Mobile Drawer Component
+import { X, History } from 'lucide-react';
+
+const MobileHistoryDrawer: React.FC<{
+    currentJobId: string | null;
+    onSelect: (id: string) => void;
+}> = ({ currentJobId, onSelect }) => {
+    const [isOpen, setIsOpen] = useState(false);
+
+    return (
+        <>
+            {/* Floating Action Button */}
+            <button
+                onClick={() => setIsOpen(true)}
+                className="lg:hidden fixed bottom-24 right-6 z-40 bg-purple-600 hover:bg-purple-500 text-white p-4 rounded-full shadow-2xl shadow-purple-900/50 border border-purple-400/50 transition-transform active:scale-95"
+            >
+                <History size={24} />
+            </button>
+
+            {/* Modal Overlay */}
+            {isOpen && (
+                <div className="fixed inset-0 z-50 lg:hidden flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+                    <div className="bg-gray-900 w-full max-w-md max-h-[80vh] rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col animate-slide-up relative">
+                        {/* Close Button */}
+                        <div className="absolute top-2 right-2 z-10">
+                            <button
+                                onClick={() => setIsOpen(false)}
+                                className="p-2 bg-gray-800/50 rounded-full text-white hover:bg-gray-700"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <KaraokeHistory
+                            currentJobId={currentJobId}
+                            onSelect={(id) => {
+                                onSelect(id);
+                                setIsOpen(false); // Close on select
+                            }}
+                        />
+                    </div>
+                </div>
+            )}
+        </>
+    );
+};
+
 // Extracted History Component for Cleaner Code
+import { RefreshCw, Trash2 } from 'lucide-react';
+
 interface HistoryItem {
     job_id: string;
     title: string;
@@ -439,58 +500,74 @@ export const KaraokeHistory: React.FC<{
     currentJobId: string | null;
 }> = ({ onSelect, currentJobId }) => {
     const [history, setHistory] = useState<HistoryItem[]>([]);
-    const [isOpen, setIsOpen] = useState(false); // Default collapsed
+    const [isLoading, setIsLoading] = useState(false);
 
-    // Fetch History
+    const fetchHistory = async () => {
+        setIsLoading(true);
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/karaoke/history`);
+            if (res.ok) {
+                const data = await res.json();
+                setHistory(data);
+            }
+        } catch (e) {
+            console.error("Failed to load history", e);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleDeleteAll = async () => {
+        if (!window.confirm('確定要刪除所有歷史紀錄嗎？這將會刪除所有已製作的檔案。')) return;
+        try {
+            await fetch(`${API_BASE_URL}/api/karaoke/history`, { method: 'DELETE' });
+            setHistory([]);
+        } catch (e) {
+            alert('刪除失敗');
+        }
+    };
+
+    // Initial Fetch
     useEffect(() => {
-        fetch(`${API_BASE_URL}/api/karaoke/history`)
-            .then(res => res.json())
-            .then(data => setHistory(data))
-            .catch(e => console.error("Failed to load history", e));
-    }, [currentJobId, isOpen]); // Reload when opens or job changes
-
-    if (!isOpen) {
-        return (
-            <button
-                onClick={() => setIsOpen(true)}
-                className="fixed right-0 top-1/2 transform -translate-y-1/2 bg-gray-800 p-2 rounded-l-lg shadow-lg hover:bg-gray-700 transition z-40 border-l border-t border-b border-gray-600 group"
-                title="歷史紀錄"
-            >
-                <div className="writing-vertical-lr text-gray-400 group-hover:text-white font-medium tracking-widest py-2">
-                    歷史紀錄
-                </div>
-            </button>
-        );
-    }
+        fetchHistory();
+    }, [currentJobId]);
 
     return (
-        <div className="fixed right-0 top-0 h-full w-80 bg-gray-900 border-l border-gray-800 shadow-2xl z-50 transform transition-transform duration-300 ease-in-out overflow-hidden flex flex-col">
+        <div className="w-full bg-gray-900 rounded-xl border border-gray-800 shadow-2xl overflow-hidden flex flex-col h-[600px]">
             <div className="p-4 border-b border-gray-800 bg-gray-900/95 backdrop-blur flex justify-between items-center">
                 <h3 className="text-white font-bold text-lg">歷史紀錄</h3>
-                <button
-                    onClick={() => setIsOpen(false)}
-                    className="text-gray-400 hover:text-white"
-                >
-                    ✕
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={fetchHistory}
+                        className={`p-1.5 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white transition ${isLoading ? 'animate-spin' : ''}`}
+                        title="重新整理"
+                    >
+                        <RefreshCw size={16} />
+                    </button>
+                    <button
+                        onClick={handleDeleteAll}
+                        className="p-1.5 rounded-lg hover:bg-red-900/30 text-gray-400 hover:text-red-400 transition"
+                        title="清空紀錄"
+                    >
+                        <Trash2 size={16} />
+                    </button>
+                </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-gray-700">
                 {history.length === 0 ? (
-                    <div className="text-gray-500 text-center py-8">
-                        暫無紀錄
+                    <div className="text-gray-500 text-center py-8 text-sm flex flex-col items-center gap-2">
+                        <span>暫無紀錄</span>
+                        <button onClick={fetchHistory} className="text-purple-400 hover:text-purple-300 text-xs underline">重試</button>
                     </div>
                 ) : (
                     history.map(item => (
                         <div
                             key={item.job_id}
-                            onClick={() => {
-                                onSelect(item.job_id);
-                                // Optional: close on select? setIsOpen(false);
-                            }}
+                            onClick={() => onSelect(item.job_id)}
                             className={`p-3 rounded-lg cursor-pointer transition border group items-start text-left ${currentJobId === item.job_id
-                                    ? 'bg-purple-900/40 border-purple-500/50'
-                                    : 'bg-gray-800 border-gray-700 hover:border-gray-500'
+                                ? 'bg-purple-900/40 border-purple-500/50'
+                                : 'bg-gray-800 border-gray-700 hover:border-gray-500'
                                 }`}
                         >
                             <div className="text-white font-medium line-clamp-2 text-sm mb-1 group-hover:text-purple-300 transition-colors">

@@ -1,0 +1,44 @@
+[
+  {
+    "id": "24cb2476",
+    "youtube_url": "https://www.youtube.com/watch?v=8dACDsqAueU",
+    "title": "\u3010\u6578\u78bc\u5bf6\u8c9d \u4e3b\u984c\u66f2 - ButterFly\u3011\u4e2d\u65e5\u7f85\u99ac\u62fc\u97f3 \u6b4c\u8a5e",
+    "thumbnail": "https://i.ytimg.com/vi/8dACDsqAueU/hqdefault.jpg",
+    "duration": "4:19",
+    "status": "completed",
+    "progress": 100,
+    "added_at": "6788667e-05ba-11f1-b120-4a6306dec667",
+    "error": "process_karaoke_job() got an unexpected keyword argument 'background_tasks'"
+  },
+  {
+    "id": "f396a447",
+    "youtube_url": "https://www.youtube.com/watch?v=RMFVuCURZIs",
+    "title": "\u3010\u6578\u78bc\u5bf6\u8c9dOP\u3011Butterfly",
+    "thumbnail": "https://i.ytimg.com/vi/RMFVuCURZIs/hqdefault.jpg",
+    "duration": "4:34",
+    "status": "completed",
+    "progress": 100,
+    "added_at": "7713a3e2-05ba-11f1-b120-4a6306dec667",
+    "error": "process_karaoke_job() got an unexpected keyword argument 'background_tasks'"
+  },
+  {
+    "id": "894c76b2",
+    "youtube_url": "https://www.youtube.com/watch?v=WWB01IuMvzA",
+    "title": "God knows... ''The Melancholy of Haruhi Suzumiya'' \u3010\u6dbc\u5bae\u30cf\u30eb\u30d2\u306e\u6182\u9b31\u3011Kadokawa\u516c\u8a8dMAD\u3010\uff8d\uff9e\uff70\uff7d \u6f14\u594f\u3011",
+    "thumbnail": "https://i.ytimg.com/vi/WWB01IuMvzA/hqdefault.jpg",
+    "duration": "4:41",
+    "status": "completed",
+    "progress": 100,
+    "added_at": "43eedf30-05bb-11f1-8722-4a6306dec667"
+  },
+  {
+    "id": "4df193bf",
+    "youtube_url": "https://www.youtube.com/watch?v=-Aw0D6nInX4",
+    "title": "\u72ac\u591c\u53c9\u4e3b\u984c\u66f2op1 Iunyasha-Change the world",
+    "thumbnail": "https://i.ytimg.com/vi/-Aw0D6nInX4/hqdefault.jpg",
+    "duration": "4:54",
+    "status": "completed",
+    "progress": 100,
+    "added_at": "2c5c298e-05bd-11f1-9161-4a6306dec667"
+  }
+]

@@ -7,6 +7,7 @@ import { Pitcher } from './components/Pitcher';
 
 import { MidiTranscriber } from './components/MidiTranscriber';
 import { KaraokePlayer } from './components/KaraokePlayer';
+import { SongRequestSystem } from './components/SongRequestSystem';
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
@@ -14,7 +15,7 @@ const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any)
     : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8050` : 'http://localhost:8050');
 
 
-type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber' | 'karaoke';
+type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber' | 'karaoke' | 'request';
 
 export default function App() {
     // Tabs: 3 modules
@@ -133,6 +134,7 @@ export default function App() {
         { key: 'splitter', icon: <SplitSquareVertical size={18} />, label: '分離器', color: 'from-green-500 to-emerald-500' },
         { key: 'transcriber', icon: <FileMusic size={18} />, label: '採譜', color: 'from-amber-500 to-orange-500' },
         { key: 'karaoke', icon: <Music size={18} />, label: '卡拉OK', color: 'from-purple-600 to-indigo-600' },
+        { key: 'request', icon: <Loader2 size={18} />, label: '點歌', color: 'from-pink-500 to-rose-500' },
     ];
 
     return (
@@ -176,10 +178,10 @@ export default function App() {
                 </div>
             </div>
 
-            <main className="flex-1 max-w-7xl mx-auto w-full px-4 md:px-6 lg:px-8 py-6 md:py-8">
+            <main className="flex-1 w-full px-4 md:px-6 lg:px-8 py-6 md:py-8">
 
                 {/* TAB 1: SOURCE - 音樂來源 */}
-                <div style={{ display: activeTab === 'source' ? 'block' : 'none' }} className="space-y-6 animate-fade-in">
+                <div style={{ display: activeTab === 'source' ? 'block' : 'none' }} className="space-y-6 animate-fade-in max-w-7xl mx-auto">
                     {/* Desktop: Two column layout */}
                     <div className="md:grid md:grid-cols-2 md:gap-8 space-y-6 md:space-y-0">
                         {/* YouTube Input */}
@@ -365,10 +367,17 @@ export default function App() {
                 </div>
 
                 {/* TAB 5: KARAOKE - 卡拉OK */}
-                <div style={{ display: activeTab === 'karaoke' ? 'block' : 'none' }} className="animate-fade-in space-y-4 max-w-4xl mx-auto">
+                <div style={{ display: activeTab === 'karaoke' ? 'block' : 'none' }} className="animate-fade-in space-y-4 w-full">
                     <KaraokePlayer
                         youtubeUrl={url && !urlError ? url : undefined}
                         isActive={activeTab === 'karaoke'}
+                    />
+                </div>
+
+                {/* TAB 6: REQUEST - 點歌 */}
+                <div style={{ display: activeTab === 'request' ? 'block' : 'none' }} className="animate-fade-in space-y-4 w-full">
+                    <SongRequestSystem
+                        isActive={activeTab === 'request'}
                     />
                 </div>
 

@@ -28,6 +28,110 @@ SEPARATED_DIR.mkdir(exist_ok=True)
 
 from job_store import job_status_store, update_job_status, get_job_status
 from karaoke import process_karaoke_job, KARAOKE_DIR
+from utils.youtube_search import search_youtube
+
+# Queue Persistence
+QUEUE_FILE = BASE_DIR / "queue.json"
+
+if not QUEUE_FILE.exists():
+    with open(QUEUE_FILE, "w") as f:
+        json.dump([], f)
+
+def load_queue():
+    try:
+        with open(QUEUE_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_queue(queue_data):
+    with open(QUEUE_FILE, "w") as f:
+        json.dump(queue_data, f, indent=2)
+
+async def queue_processor():
+    """Background task to process karaoke queue sequentially"""
+    logging.info("Queue Processor Started")
+    
+    # Reset stuck 'processing' items or items failed due to recent bug
+    try:
+        queue = load_queue()
+        stuck_count = 0
+        for item in queue:
+            is_stuck = item["status"] == "processing"
+            is_bugged = item["status"] == "error" and "unexpected keyword argument" in item.get("error", "")
+            
+            if is_stuck or is_bugged:
+                item["status"] = "pending"
+                item["progress"] = 0
+                stuck_count += 1
+        if stuck_count > 0:
+            save_queue(queue)
+            logging.info(f"Reset {stuck_count} stuck/bugged jobs to pending")
+    except Exception as e:
+        logging.error(f"Failed to reset stuck jobs: {e}")
+
+    while True:
+        try:
+            queue = load_queue()
+            # Find next pending item
+            pending_item = next((item for item in queue if item["status"] == "pending"), None)
+            
+            if pending_item:
+                job_id = pending_item["id"]
+                youtube_url = pending_item["youtube_url"]
+                
+                logging.info(f"Processing Queue Item: {job_id} ({pending_item.get('title', 'Unknown')})")
+                
+                # Update status to processing
+                for item in queue:
+                    if item["id"] == job_id:
+                        item["status"] = "processing"
+                        item["progress"] = 0
+                save_queue(queue)
+                
+                # Execute Karaoke Job
+                try:
+                    # Create a task to run the job 
+                    task = asyncio.create_task(process_karaoke_job(job_id, youtube_url=youtube_url))
+                    
+                    # Wait for task while syncing progress
+                    while not task.done():
+                        await asyncio.sleep(1)
+                        # Sync progress from job_store to queue.json
+                        current_status = get_job_status(job_id)
+                        if current_status:
+                            q = load_queue()
+                            for item in q:
+                                if item["id"] == job_id:
+                                    item["progress"] = current_status.get("progress", 0)
+                            save_queue(q)
+                    
+                    # Task done, check result
+                    await task
+                    
+                    # Success
+                    queue = load_queue() # Reload in case of changes
+                    for item in queue:
+                        if item["id"] == job_id:
+                            item["status"] = "completed"
+                            item["progress"] = 100
+                    save_queue(queue)
+                    logging.info(f"Queue Item Completed: {job_id}")
+                    
+                except Exception as e:
+                    logging.error(f"Queue Job Failed: {e}")
+                    queue = load_queue()
+                    for item in queue:
+                        if item["id"] == job_id:
+                            item["status"] = "error"
+                            item["error"] = str(e)
+                    save_queue(queue)
+            
+            await asyncio.sleep(2) # Check every 2 seconds
+            
+        except Exception as e:
+            logging.error(f"Queue Processor Critical Error: {e}")
+            await asyncio.sleep(5)
 
 # Job status store is now imported from job_store.py
 
@@ -98,6 +202,66 @@ class TranscribeResponse(BaseModel):
     task_id: str
     status: str
     message: str
+
+class SongRequest(BaseModel):
+    youtube_url: str
+    title: str = "Unknown Title"
+    thumbnail: Optional[str] = None
+    duration: Optional[str] = "0:00"
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(queue_processor())
+
+@app.get("/api/youtube/search")
+async def search_youtube_endpoint(q: str):
+    """Search YouTube without API Key"""
+    if not q:
+        return []
+    return search_youtube(q)
+
+@app.get("/api/queue")
+async def get_queue():
+    """Get current song queue"""
+    return load_queue()
+
+@app.post("/api/queue")
+async def add_to_queue(request: SongRequest):
+    """Add a song to the queue"""
+    queue = load_queue()
+    
+    # Check if already exists
+    if any(item["youtube_url"] == request.youtube_url and item["status"] in ["pending", "processing"] for item in queue):
+         raise HTTPException(status_code=400, detail="Song already in queue")
+         
+    job_id = str(uuid.uuid4())[:8]
+    new_item = {
+        "id": job_id,
+        "youtube_url": request.youtube_url,
+        "title": request.title,
+        "thumbnail": request.thumbnail,
+        "duration": request.duration,
+        "status": "pending",
+        "progress": 0,
+        "added_at": str(uuid.uuid1()) # simple timestamp
+    }
+    
+    queue.append(new_item)
+    save_queue(queue)
+    
+    # Initialize job status in store as well so status API works
+    update_job_status(job_id, {"status": "pending", "progress": 0, "message": "In Queue"})
+    
+    return new_item
+
+@app.delete("/api/queue/{item_id}")
+async def remove_from_queue(item_id: str):
+    """Remove a song from queue"""
+    queue = load_queue()
+    queue = [item for item in queue if item["id"] != item_id]
+    save_queue(queue)
+    return {"status": "removed"}
+
 
 # ============== Helper Functions ==============
 
@@ -696,8 +860,22 @@ async def get_history():
             continue
             
     # Sort by date descending (newest first)
-    history.sort(key=lambda x: x.date, reverse=True)
+    # Sort by date descending (newest first)
+    history.sort(key=lambda x: x.date or "", reverse=True)
+    # logging.info(f"Loaded {len(history)} history items. Top: {[h.date for h in history[:3]]}")
     return history
+
+@app.delete("/api/karaoke/history")
+async def clear_history():
+    """清除所有卡拉OK歷史紀錄 (刪除檔案)"""
+    try:
+        # Delete all subdirectories in KARAOKE_DIR
+        for item in KARAOKE_DIR.iterdir():
+            if item.is_dir():
+                shutil.rmtree(item)
+        return {"message": "History cleared"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/upload")
 async def upload_audio(file: UploadFile = File(...)):
