@@ -292,7 +292,9 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
         if idx == 0:
              raise Exception("沒有分離出任何背景音軌")
              
-        filter_complex += f"amix=inputs={idx}:duration=longest[out]"
+        # Use normalize=0 to SUM the signals instead of averaging.
+        # This restores the original volume/energy of the backing track.
+        filter_complex += f"amix=inputs={idx}:duration=longest:normalize=0[out]"
         
         cmd_mix = ["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", str(instrumental_wav)]
         
@@ -305,32 +307,50 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
         vocals_wav = demucs_out / "vocals.wav"
         vocals_mp3 = work_dir / "vocals.mp3" # Save inside job_dir
         vocals_url = None
+        
+        # Helper to convert wav to mp3 and return url
+        async def convert_to_mp3(wav_path: Path, mp3_path: Path) -> str:
+            if not wav_path.exists(): return None
+            cmd = [
+                ffmpeg_path, "-y",
+                "-i", str(wav_path),
+                "-vn", "-ar", "44100", "-ac", "2", "-b:a", "192k",
+                str(mp3_path)
+            ]
+            p = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            await p.communicate()
+            if mp3_path.exists():
+                return f"/files/karaoke/{today_date}/{job_id}/{mp3_path.name}"
+            return None
 
         if vocals_wav.exists():
-            try:
-                update_job_status(job_id, {"status": "processing", "progress": 90, "message": "正在處理人聲音軌..."})
-                cmd_vocals = [
-                    ffmpeg_path, "-y",
-                    "-i", str(vocals_wav),
-                    "-vn", "-ar", "44100", "-ac", "2", "-b:a", "128k",
-                    str(vocals_mp3)
-                ]
-                logging.info(f"Processing Vocals: {' '.join(cmd_vocals)}")
-                proc_v = await asyncio.create_subprocess_exec(
-                    *cmd_vocals, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-                stdout_v, stderr_v = await proc_v.communicate()
-                
-                if proc_v.returncode != 0:
-                     logging.error(f"Vocals FFmpeg failed: {stderr_v.decode()}")
-                elif vocals_mp3.exists():
-                    # URL structure: /files/karaoke/YYYYMMDD/job_id/vocals.mp3
-                    # We need to expose this new path structure in main.py later
-                    vocals_url = f"/files/karaoke/{today_date}/{job_id}/vocals.mp3"
-                    logging.info(f"Vocals ready at {vocals_url}")
-            except Exception as ve:
-                logging.error(f"Vocals processing error: {ve}")
-                # Don't fail the main job for this
+             try:
+                 update_job_status(job_id, {"status": "processing", "progress": 90, "message": "正在處理人聲音軌..."})
+                 vocals_url = await convert_to_mp3(vocals_wav, vocals_mp3)
+             except Exception as ve:
+                 logging.error(f"Vocals processing error: {ve}")
+
+        # Process all other stems for individual access
+        stems_urls = {}
+        for s in stems:
+            stem_wav = demucs_out / f"{s}.wav"
+            stem_mp3 = work_dir / f"{s}.mp3"
+            if stem_wav.exists():
+                url = await convert_to_mp3(stem_wav, stem_mp3)
+                if url:
+                    stems_urls[s] = url
+
+        # 4.5 Convert Instrumental to MP3 for simpler frontend loading
+        instrumental_mp3 = work_dir / "instrumental.mp3"
+        instrumental_url = None
+        
+        try:
+            update_job_status(job_id, {"status": "processing", "progress": 92, "message": "正在最佳化伴奏音訊..."})
+            instrumental_url = await convert_to_mp3(instrumental_wav, instrumental_mp3)
+        except Exception as e:
+            logging.warning(f"Instrumental MP3 conversion failed: {e}")
 
         # 5. Remux with Video
         update_job_status(job_id, {"status": "processing", "progress": 95, "message": "正在輸出最終影片..."})
@@ -359,9 +379,6 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
              logging.error(f"FFmpeg Remux failed: {stderr.decode()}")
              raise Exception("最終合成失敗")
 
-        # Cleanup (Optional - keep source for debugging or space saving?)
-        # shutil.rmtree(demucs_out.parent) 
-        
         # Update Info JSON
         info_path = work_dir / "info.json"
         if info_path.exists():
@@ -372,13 +389,16 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
                 json.dump(data, f, indent=4, ensure_ascii=False)
                 f.truncate()
         
-        update_job_status(job_id, {
+        final_status = {
             "status": "completed",
             "progress": 100,
             "message": "轉換完成！",
             "file_url": f"/files/karaoke/{today_date}/{job_id}/video.mp4",
-            "vocals_url": vocals_url
-        })
+            "vocals_url": vocals_url,
+            "instrumental_url": instrumental_url,
+            "stems": stems_urls # Expose all individual stems
+        }
+        update_job_status(job_id, final_status)
 
     except Exception as e:
         print(f"Karaoke Error: {e}")

@@ -29,9 +29,12 @@ interface QueueItem {
 
 interface SongRequestSystemProps {
     isActive: boolean;
+    currentUser?: string | null;
 }
 
-export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive }) => {
+export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, currentUser }) => {
+    // User query param for per-user queue
+    const userQuery = currentUser ? `?user=${encodeURIComponent(currentUser)}` : '';
     // Search State
     const [query, setQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
@@ -58,7 +61,7 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive }
 
         const fetchQueue = async () => {
             try {
-                const res = await fetch(`${API_BASE_URL}/api/queue`);
+                const res = await fetch(`${API_BASE_URL}/api/queue${userQuery}`);
                 if (res.ok) {
                     const data = await res.json();
                     setQueue(data);
@@ -71,7 +74,7 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive }
         fetchQueue();
         const interval = setInterval(fetchQueue, 2000);
         return () => clearInterval(interval);
-    }, [isActive]);
+    }, [isActive, userQuery]);
 
 
     const handleSearch = async (q: string) => {
@@ -108,7 +111,7 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive }
     const addToQueue = async (video: SearchResult) => {
         try {
             const formattedDuration = formatDuration(video.duration);
-            const res = await fetch(`${API_BASE_URL}/api/queue`, {
+            const res = await fetch(`${API_BASE_URL}/api/queue${userQuery}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -140,7 +143,7 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive }
     const removeFromQueue = async (id: string) => {
         if (!window.confirm('確定要移除這首歌嗎？')) return;
         try {
-            await fetch(`${API_BASE_URL}/api/queue/${id}`, { method: 'DELETE' });
+            await fetch(`${API_BASE_URL}/api/queue/${id}${userQuery}`, { method: 'DELETE' });
             setQueue(prev => prev.filter(item => item.id !== id));
         } catch (e) {
             console.error(e);
@@ -257,7 +260,7 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive }
                 <div className="p-5 border-b border-gray-800 bg-gray-900 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 text-white">
                         <Music className="text-purple-500" />
-                        <h2 className="font-bold text-lg">點歌清單</h2>
+                        <h2 className="font-bold text-lg">{currentUser ? `${currentUser} 的歌單` : '點歌清單'}</h2>
                         <span className="bg-purple-900/50 text-purple-300 px-2 py-0.5 rounded-full text-xs font-mono">{queue.length}</span>
                     </div>
                 </div>

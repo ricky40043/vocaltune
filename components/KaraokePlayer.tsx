@@ -1,17 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Loader2, Upload, Download, Mic, Youtube, MicOff } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Play, Pause, Loader2, Upload, Download, Mic, Youtube, MicOff, SkipForward, Plus, Minus, Music } from 'lucide-react';
+import * as Tone from 'tone';
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
     ? (import.meta as any).env.VITE_API_URL
-    : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8050` : 'http://localhost:8050');
+    : ''; // Default to relative path (assumes proxy)
 
 interface KaraokePlayerProps {
     youtubeUrl?: string; // From App input
     isActive?: boolean;
+    currentUser?: string | null;
 }
 
-export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActive }) => {
+export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActive, currentUser }) => {
     // State
     const [jobId, setJobId] = useState<string | null>(null);
     const [status, setStatus] = useState<'idle' | 'processing' | 'completed' | 'error'>('idle');
@@ -20,7 +22,11 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
     const [error, setError] = useState<string | null>(null);
     const [videoUrl, setVideoUrl] = useState<string | null>(null);
     const [vocalsUrl, setVocalsUrl] = useState<string | null>(null);
+    const [instrumentalUrl, setInstrumentalUrl] = useState<string | null>(null);
     const [playVocals, setPlayVocals] = useState(false); // Default: Vocals Muted (False)
+
+    // History list for auto-play next
+    const [historyList, setHistoryList] = useState<HistoryItem[]>([]);
 
     // Local Upload State
     const [localFile, setLocalFile] = useState<File | null>(null);
@@ -30,6 +36,28 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
     // Refs
     const videoRef = useRef<HTMLVideoElement>(null);
     const vocalsRef = useRef<HTMLAudioElement>(null);
+
+    // Pitch shift state
+    const [pitchSemitones, setPitchSemitones] = useState(0);
+    const videoGrainRef = useRef<Tone.GrainPlayer | null>(null);
+    const vocalsGrainRef = useRef<Tone.GrainPlayer | null>(null);
+    const [pitchReady, setPitchReady] = useState(false);
+    const pitchActiveRef = useRef(false); // Whether pitch shift audio is active
+
+    // Helper: load a job by ID
+    const loadJob = (id: string) => {
+        console.log("Loading job:", id);
+        setJobId(id);
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.set('jobId', id);
+        window.history.pushState({}, '', newUrl.toString());
+        setStatus('processing');
+        setMessage('正在讀取紀錄...');
+        setVideoUrl(null);
+        setVocalsUrl(null);
+        setInstrumentalUrl(null);
+        setPitchSemitones(0); // Reset pitch on song change
+    };
 
     // Sync Logic
     // Sync Logic
@@ -102,6 +130,7 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
         setError(null);
         setVideoUrl(null);
         setVocalsUrl(null);
+        setInstrumentalUrl(null);
 
         try {
             let targetUrl = youtubeUrl;
@@ -208,6 +237,9 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                     if (data.vocals_url) {
                         setVocalsUrl(`${API_BASE_URL}${data.vocals_url}`);
                     }
+                    if (data.instrumental_url) {
+                        setInstrumentalUrl(`${API_BASE_URL}${data.instrumental_url}`);
+                    }
                     clearInterval(interval);
                 } else if (data.status === 'error') {
                     setStatus('error');
@@ -221,6 +253,246 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
 
         return () => clearInterval(interval);
     }, [jobId, status]);
+
+    // Auto-play video when it becomes ready
+    useEffect(() => {
+        if (status !== 'completed' || !videoUrl) return;
+        const video = videoRef.current;
+        if (!video) return;
+
+        const tryAutoPlay = () => {
+            video.play().catch(() => {
+                // Browser blocked autoplay with sound — do nothing
+                console.log("[Karaoke] Autoplay blocked by browser, user must click play.");
+            });
+        };
+
+        // If video is already loaded enough, play now; otherwise wait for canplay
+        if (video.readyState >= 3) {
+            tryAutoPlay();
+        } else {
+            video.addEventListener('canplay', tryAutoPlay, { once: true });
+            return () => video.removeEventListener('canplay', tryAutoPlay);
+        }
+    }, [status, videoUrl]);
+
+    // Setup GrainPlayer for audio playback (Backing + Vocals)
+    useEffect(() => {
+        if (status !== 'completed' || !videoUrl) return;
+
+        let cancelled = false;
+
+        const setupGrainPlayers = async () => {
+            try {
+                // Determine backing track source (prefer instrumental.mp3, fallback to video file)
+                const backingUrl = instrumentalUrl || videoUrl;
+
+                // Fetch backing audio and decode
+                const videoResponse = await fetch(backingUrl);
+                if (cancelled) return;
+                const videoBuffer = await videoResponse.arrayBuffer();
+                if (cancelled) return;
+
+                const audioCtx = Tone.getContext().rawContext as AudioContext;
+                const decodedVideo = await audioCtx.decodeAudioData(videoBuffer.slice(0));
+                if (cancelled) return;
+
+                // Create ToneAudioBuffer from decoded data
+                const toneVideoBuffer = new Tone.ToneAudioBuffer(decodedVideo);
+                const videoGrain = new Tone.GrainPlayer({
+                    url: toneVideoBuffer,
+                    grainSize: 0.2,
+                    overlap: 0.05,
+                    loop: false,
+                });
+
+                // Always running, volume controlled by pitch state
+                videoGrain.volume.value = 0; // Default volume (unless pitch=0 logic overrides)
+                videoGrain.toDestination();
+                videoGrainRef.current = videoGrain;
+
+                // Fetch vocals audio if available
+                if (vocalsUrl) {
+                    try {
+                        const vocalsResponse = await fetch(vocalsUrl);
+                        if (!vocalsResponse.ok) throw new Error(`Vocals fetch failed: ${vocalsResponse.status}`);
+                        if (cancelled) return;
+                        const vocalsBuffer = await vocalsResponse.arrayBuffer();
+                        if (cancelled) return;
+                        const decodedVocals = await audioCtx.decodeAudioData(vocalsBuffer.slice(0));
+                        if (cancelled) return;
+
+                        const toneVocalsBuffer = new Tone.ToneAudioBuffer(decodedVocals);
+                        const vocalsGrain = new Tone.GrainPlayer({
+                            url: toneVocalsBuffer,
+                            grainSize: 0.2,
+                            overlap: 0.05,
+                            loop: false,
+                        });
+                        vocalsGrain.volume.value = -Infinity; // Init based on playVocals? Handled by effect
+                        vocalsGrain.toDestination();
+                        vocalsGrainRef.current = vocalsGrain;
+                    } catch (e) {
+                        console.warn('[Karaoke] Could not setup vocals grain player:', e);
+                    }
+                }
+
+                if (!cancelled) {
+                    setPitchReady(true);
+                    console.log('[Karaoke] GrainPlayers ready. Source:', backingUrl === instrumentalUrl ? 'Instrumental MP3' : 'Video File');
+                }
+            } catch (e) {
+                console.error('[Karaoke] Failed to setup GrainPlayers:', e);
+            }
+        };
+
+        setupGrainPlayers();
+
+        return () => {
+            cancelled = true;
+            try { Tone.Transport.stop(); Tone.Transport.cancel(); } catch (e) { }
+            try { videoGrainRef.current?.unsync(); videoGrainRef.current?.dispose(); } catch (e) { }
+            try { vocalsGrainRef.current?.unsync(); vocalsGrainRef.current?.dispose(); } catch (e) { }
+            videoGrainRef.current = null;
+            vocalsGrainRef.current = null;
+            setPitchReady(false);
+            pitchActiveRef.current = false;
+        };
+    }, [status, videoUrl, vocalsUrl, instrumentalUrl]);
+
+    // Start GrainPlayers synced to Transport once they're ready
+    useEffect(() => {
+        if (!pitchReady) return;
+        const video = videoRef.current;
+        if (!video) return;
+
+        const startSync = async () => {
+            try {
+                await Tone.start();
+
+                // Sync GrainPlayers to Transport (start once, never stop)
+                if (videoGrainRef.current) {
+                    videoGrainRef.current.sync().start(0);
+                }
+                if (vocalsGrainRef.current) {
+                    vocalsGrainRef.current.sync().start(0);
+                }
+
+                // Set Transport to current video position
+                Tone.Transport.seconds = video.currentTime;
+                if (!video.paused) {
+                    Tone.Transport.start(undefined, video.currentTime);
+                }
+
+                console.log('[Karaoke] GrainPlayers synced to Transport');
+            } catch (e) {
+                console.error('[Karaoke] Failed to start grain playback:', e);
+            }
+        };
+
+        startSync();
+    }, [pitchReady]);
+
+    // Sync Tone.Transport with video play/pause/seek (always active when pitchReady)
+    useEffect(() => {
+        if (!pitchReady) return;
+        const video = videoRef.current;
+        if (!video) return;
+
+        const onVideoPlay = () => {
+            // Ensure context is running when video plays (especially via native controls)
+            Tone.start();
+            Tone.Transport.start(undefined, video.currentTime);
+        };
+        const onVideoPause = () => {
+            Tone.Transport.pause();
+        };
+        const onVideoSeeked = () => {
+            const wasPlaying = Tone.Transport.state === 'started';
+            Tone.Transport.pause();
+            Tone.Transport.seconds = video.currentTime;
+            if (wasPlaying || !video.paused) {
+                Tone.Transport.start(undefined, video.currentTime);
+            }
+        };
+
+        video.addEventListener('play', onVideoPlay);
+        video.addEventListener('pause', onVideoPause);
+        video.addEventListener('seeked', onVideoSeeked);
+
+        return () => {
+            video.removeEventListener('play', onVideoPlay);
+            video.removeEventListener('pause', onVideoPause);
+            video.removeEventListener('seeked', onVideoSeeked);
+        };
+    }, [pitchReady]);
+
+    // Update Volume & Detune based on Pitch & Vocals Toggle & Native/WebAudio Strategy
+    useEffect(() => {
+        const video = videoRef.current;
+        const vocals = vocalsRef.current;
+        const isActive = pitchSemitones !== 0;
+
+        if (isActive) {
+            // --- PITCH SHIFT MODE (Use Web Audio) ---
+
+            // Mute native elements ONLY if custom GrainPlayer is ready
+            if (video) {
+                // If videoGrain exists, mute native video. Else keep it (untuned).
+                video.muted = !!videoGrainRef.current;
+            }
+            if (vocals) {
+                if (vocalsGrainRef.current) {
+                    vocals.muted = true;
+                    vocals.volume = 0;
+                } else {
+                    // Fallback: If no GrainPlayer, use native vocals even in pitch mode (untuned)
+                    vocals.muted = !playVocals;
+                    vocals.volume = playVocals ? 1 : 0;
+                }
+            }
+
+            // Enable GrainPlayers
+            if (videoGrainRef.current) {
+                videoGrainRef.current.detune = pitchSemitones * 100;
+                videoGrainRef.current.volume.value = -4;
+            }
+            if (vocalsGrainRef.current) {
+                vocalsGrainRef.current.detune = pitchSemitones * 100;
+                vocalsGrainRef.current.volume.value = playVocals ? -4 : -Infinity;
+            }
+        } else {
+            // --- NORMAL MODE (Use Native Audio for Stability) ---
+
+            // Unmute native video (Backing)
+            if (video) video.muted = false;
+
+            // Handle native vocals
+            if (vocals) {
+                vocals.muted = !playVocals;
+                vocals.volume = playVocals ? 1 : 0;
+            }
+
+            // Mute GrainPlayers (but keep them synced/running to avoid re-sync delay)
+            if (videoGrainRef.current) videoGrainRef.current.volume.value = -Infinity;
+            if (vocalsGrainRef.current) vocalsGrainRef.current.volume.value = -Infinity;
+        }
+
+        pitchActiveRef.current = isActive;
+
+    }, [pitchSemitones, playVocals, pitchReady]);
+
+
+    // Handle pitch change from user (needs Tone.start from gesture)
+    const changePitch = async (delta: number) => {
+        await Tone.start();
+        setPitchSemitones(s => s + delta);
+    };
+
+    const resetPitch = async () => {
+        await Tone.start();
+        setPitchSemitones(0);
+    };
 
     return (
         <div className="w-full p-6 flex flex-col lg:flex-row gap-6 items-start">
@@ -345,10 +617,57 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                                 controls
                                 playsInline
                                 preload="metadata"
+                                onEnded={() => {
+                                    // Auto-play next song
+                                    if (historyList.length > 0 && jobId) {
+                                        const currentIndex = historyList.findIndex(h => h.job_id === jobId);
+                                        if (currentIndex >= 0 && currentIndex < historyList.length - 1) {
+                                            loadJob(historyList[currentIndex + 1].job_id);
+                                        }
+                                    }
+                                }}
                             />
                             {vocalsUrl && (
                                 <audio ref={vocalsRef} src={vocalsUrl} className="hidden" preload="auto" />
                             )}
+                        </div>
+
+                        {/* Pitch Shift Controls */}
+                        <div className="bg-gray-800/80 rounded-lg p-4 border border-gray-700">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-pink-300">
+                                    <Music className="w-4 h-4" />
+                                    <span className="font-bold text-sm">升降Key</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        onClick={() => changePitch(-1)}
+                                        className="w-10 h-10 flex items-center justify-center rounded-lg bg-gray-700 hover:bg-gray-600 text-white border border-gray-600 active:scale-95 transition-all"
+                                    >
+                                        <Minus size={18} />
+                                    </button>
+                                    <div className="flex flex-col items-center min-w-[60px]">
+                                        <span className={`text-xl font-bold font-mono ${pitchSemitones === 0 ? 'text-gray-400' : pitchSemitones > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                            {pitchSemitones > 0 ? '+' : ''}{pitchSemitones}
+                                        </span>
+                                        <span className="text-[10px] text-gray-500">半音</span>
+                                    </div>
+                                    <button
+                                        onClick={() => changePitch(1)}
+                                        className="w-10 h-10 flex items-center justify-center rounded-lg bg-gray-700 hover:bg-gray-600 text-white border border-gray-600 active:scale-95 transition-all"
+                                    >
+                                        <Plus size={18} />
+                                    </button>
+                                    {pitchSemitones !== 0 && (
+                                        <button
+                                            onClick={() => resetPitch()}
+                                            className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded bg-gray-700/50 hover:bg-gray-600 transition-colors ml-1"
+                                        >
+                                            重置
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
                         </div>
 
                         {/* Controls Bar */}
@@ -360,7 +679,10 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                                         <input
                                             type="checkbox"
                                             checked={playVocals}
-                                            onChange={(e) => setPlayVocals(e.target.checked)}
+                                            onChange={(e) => {
+                                                Tone.start().catch(() => { });
+                                                setPlayVocals(e.target.checked);
+                                            }}
                                             className="sr-only peer"
                                             disabled={!vocalsUrl}
                                         />
@@ -391,6 +713,20 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                                 <Download className="w-5 h-5" />
                                 <span>下載影片</span>
                             </a>
+                            {/* Next Song Button */}
+                            {historyList.length > 0 && jobId && (() => {
+                                const idx = historyList.findIndex(h => h.job_id === jobId);
+                                const hasNext = idx >= 0 && idx < historyList.length - 1;
+                                return hasNext ? (
+                                    <button
+                                        onClick={() => loadJob(historyList[idx + 1].job_id)}
+                                        className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition font-medium shadow-lg shadow-blue-900/30 flex items-center justify-center space-x-2"
+                                    >
+                                        <SkipForward className="w-5 h-5" />
+                                        <span>下一首</span>
+                                    </button>
+                                ) : null;
+                            })()}
                             <button
                                 onClick={() => { setStatus('idle'); setJobId(null); setVideoUrl(null); }}
                                 className="flex-1 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition font-medium shadow-lg shadow-purple-900/30"
@@ -406,33 +742,18 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
             <div className="hidden lg:block w-80 shrink-0">
                 <KaraokeHistory
                     currentJobId={jobId}
-                    onSelect={(id) => {
-                        console.log("Loading Checkpoint:", id);
-                        setJobId(id);
-                        const newUrl = new URL(window.location.href);
-                        newUrl.searchParams.set('jobId', id);
-                        window.history.pushState({}, '', newUrl.toString());
-                        setStatus('processing');
-                        setMessage('正在讀取紀錄...');
-                        setVideoUrl(null);
-                        setVocalsUrl(null);
-                    }}
+                    currentUser={currentUser}
+                    onHistoryLoaded={setHistoryList}
+                    onSelect={(id) => loadJob(id)}
                 />
             </div>
 
             {/* Mobile History FAB & Modal */}
             <MobileHistoryDrawer
                 currentJobId={jobId}
-                onSelect={(id) => {
-                    setJobId(id);
-                    const newUrl = new URL(window.location.href);
-                    newUrl.searchParams.set('jobId', id);
-                    window.history.pushState({}, '', newUrl.toString());
-                    setStatus('processing');
-                    setMessage('正在讀取紀錄...');
-                    setVideoUrl(null);
-                    setVocalsUrl(null);
-                }}
+                currentUser={currentUser}
+                onHistoryLoaded={setHistoryList}
+                onSelect={(id) => loadJob(id)}
             />
         </div>
     );
@@ -443,8 +764,10 @@ import { X, History } from 'lucide-react';
 
 const MobileHistoryDrawer: React.FC<{
     currentJobId: string | null;
+    currentUser?: string | null;
     onSelect: (id: string) => void;
-}> = ({ currentJobId, onSelect }) => {
+    onHistoryLoaded?: (items: HistoryItem[]) => void;
+}> = ({ currentJobId, currentUser, onSelect, onHistoryLoaded }) => {
     const [isOpen, setIsOpen] = useState(false);
 
     return (
@@ -473,6 +796,8 @@ const MobileHistoryDrawer: React.FC<{
 
                         <KaraokeHistory
                             currentJobId={currentJobId}
+                            currentUser={currentUser}
+                            onHistoryLoaded={onHistoryLoaded}
                             onSelect={(id) => {
                                 onSelect(id);
                                 setIsOpen(false); // Close on select
@@ -498,17 +823,22 @@ interface HistoryItem {
 export const KaraokeHistory: React.FC<{
     onSelect: (jobId: string) => void;
     currentJobId: string | null;
-}> = ({ onSelect, currentJobId }) => {
+    currentUser?: string | null;
+    onHistoryLoaded?: (items: HistoryItem[]) => void;
+}> = ({ onSelect, currentJobId, currentUser, onHistoryLoaded }) => {
     const [history, setHistory] = useState<HistoryItem[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+
+    const userQuery = currentUser ? `?user=${encodeURIComponent(currentUser)}` : '';
 
     const fetchHistory = async () => {
         setIsLoading(true);
         try {
-            const res = await fetch(`${API_BASE_URL}/api/karaoke/history`);
+            const res = await fetch(`${API_BASE_URL}/api/karaoke/history${userQuery}`);
             if (res.ok) {
                 const data = await res.json();
                 setHistory(data);
+                onHistoryLoaded?.(data);
             }
         } catch (e) {
             console.error("Failed to load history", e);
@@ -520,7 +850,7 @@ export const KaraokeHistory: React.FC<{
     const handleDeleteAll = async () => {
         if (!window.confirm('確定要刪除所有歷史紀錄嗎？這將會刪除所有已製作的檔案。')) return;
         try {
-            await fetch(`${API_BASE_URL}/api/karaoke/history`, { method: 'DELETE' });
+            await fetch(`${API_BASE_URL}/api/karaoke/history${userQuery}`, { method: 'DELETE' });
             setHistory([]);
         } catch (e) {
             alert('刪除失敗');

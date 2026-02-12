@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Music, Download, Upload, ExternalLink, Layers, Youtube, FileAudio, ArrowRight, AlertTriangle, CheckCircle2, Search, Disc, Loader2, Music2, SplitSquareVertical, FileMusic } from 'lucide-react';
+import { Music, Download, Upload, ExternalLink, Layers, Youtube, FileAudio, ArrowRight, AlertTriangle, CheckCircle2, Search, Disc, Loader2, Music2, SplitSquareVertical, FileMusic, LogIn, User } from 'lucide-react';
 import { getYouTubeID } from './utils/youtube';
 import { LocalPlayer } from './components/LocalPlayer';
 import { LocalAISeparator } from './components/LocalAISeparator';
@@ -12,7 +12,7 @@ import { SongRequestSystem } from './components/SongRequestSystem';
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
     ? (import.meta as any).env.VITE_API_URL
-    : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8050` : 'http://localhost:8050');
+    : ''; // Default to relative path (assumes proxy)
 
 
 type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber' | 'karaoke' | 'request';
@@ -20,6 +20,22 @@ type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber' | 'karaoke' | '
 export default function App() {
     // App Mode Configuration
     const APP_MODE = (import.meta as any).env.VITE_APP_MODE || 'full'; // 'full' | 'main' | 'karaoke'
+
+    // User / Login (KTV mode only)
+    const urlParams = new URLSearchParams(window.location.search);
+    const currentUser = urlParams.get('user');
+    const [showLogin, setShowLogin] = useState(() => {
+        return (APP_MODE === 'karaoke' || APP_MODE === 'full') && !currentUser;
+    });
+    const [nickname, setNickname] = useState('');
+
+    const handleLogin = () => {
+        const name = nickname.trim();
+        if (!name) return;
+        const params = new URLSearchParams(window.location.search);
+        params.set('user', name);
+        window.location.search = params.toString();
+    };
 
     // Tab configuration
     const allTabs: { key: TabType; icon: React.ReactNode; label: string; color: string }[] = [
@@ -158,6 +174,49 @@ export default function App() {
 
     return (
         <div className="min-h-screen bg-brand-900 text-white pb-24 md:pb-12 font-sans selection:bg-brand-accent selection:text-white flex flex-col">
+            {/* KTV Login Modal */}
+            {showLogin && (APP_MODE === 'karaoke' || APP_MODE === 'full') && (
+                <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 md:p-8 w-full max-w-sm shadow-2xl animate-fade-in">
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center">
+                                <User size={24} className="text-purple-400" />
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-bold text-white">歡迎來到 KTV</h2>
+                                <p className="text-sm text-gray-400">輸入暱稱建立個人歌單</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <input
+                                type="text"
+                                value={nickname}
+                                onChange={(e) => setNickname(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                                placeholder="輸入你的暱稱..."
+                                className="w-full bg-gray-800 border-2 border-gray-700 focus:border-purple-500 rounded-xl py-3 px-4 text-white placeholder-gray-500 outline-none transition-colors"
+                                autoFocus
+                            />
+                            <button
+                                onClick={handleLogin}
+                                disabled={!nickname.trim()}
+                                className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed text-white font-bold text-lg transition-all flex items-center justify-center gap-2"
+                            >
+                                <LogIn size={20} />
+                                登入
+                            </button>
+                            <button
+                                onClick={() => setShowLogin(false)}
+                                className="w-full py-2.5 rounded-xl border border-gray-600 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors text-sm"
+                            >
+                                訪客模式（使用公用歌單）
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Header */}
             <header className="sticky top-0 z-50 bg-brand-900/95 backdrop-blur-lg border-b border-gray-800 shadow-md">
                 <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -167,6 +226,12 @@ export default function App() {
                             <Music size={22} className="text-white hidden md:block" />
                         </div>
                         <h1 className="font-bold text-xl md:text-2xl tracking-tight">Vocal<span className="text-brand-glow">Tune</span> <span className="text-xs align-top text-gray-500 ml-1">{APP_MODE === 'karaoke' ? 'KTV' : APP_MODE === 'main' ? 'Studio' : 'Pro'}</span></h1>
+                        {currentUser && (
+                            <span className="ml-2 text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <User size={12} />
+                                {currentUser}
+                            </span>
+                        )}
                     </div>
                     <div className="flex items-center gap-2 md:gap-4">
                         <div className="text-[10px] md:text-xs font-mono text-gray-400 bg-gray-800 px-2 py-1 rounded">v4.0</div>
@@ -408,6 +473,7 @@ export default function App() {
                     <KaraokePlayer
                         youtubeUrl={url && !urlError ? url : undefined}
                         isActive={activeTab === 'karaoke'}
+                        currentUser={currentUser}
                     />
                 </div>
 
@@ -415,6 +481,7 @@ export default function App() {
                 <div style={{ display: activeTab === 'request' ? 'block' : 'none' }} className="animate-fade-in space-y-4 w-full">
                     <SongRequestSystem
                         isActive={activeTab === 'request'}
+                        currentUser={currentUser}
                     />
                 </div>
 
