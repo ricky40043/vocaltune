@@ -18,14 +18,18 @@ const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any)
 type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber' | 'karaoke' | 'request';
 
 export default function App() {
-    // App Mode Configuration
-    const APP_MODE = (import.meta as any).env.VITE_APP_MODE || 'full'; // 'full' | 'main' | 'karaoke'
+    // Determine app mode from URL path:
+    //   /ktv  → KTV mode  (卡拉OK + 點歌 only)
+    //   /     → Studio mode (前4個 tabs only)
+    const APP_MODE: 'main' | 'karaoke' = window.location.pathname.startsWith('/ktv')
+        ? 'karaoke'
+        : 'main';
 
     // User / Login (KTV mode only)
     const urlParams = new URLSearchParams(window.location.search);
     const currentUser = urlParams.get('user');
     const [showLogin, setShowLogin] = useState(() => {
-        return (APP_MODE === 'karaoke' || APP_MODE === 'full') && !currentUser;
+        return APP_MODE === 'karaoke' && !currentUser;
     });
     const [nickname, setNickname] = useState('');
 
