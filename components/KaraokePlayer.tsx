@@ -42,6 +42,7 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
     const videoGrainRef = useRef<Tone.GrainPlayer | null>(null);
     const vocalsGrainRef = useRef<Tone.GrainPlayer | null>(null);
     const [pitchReady, setPitchReady] = useState(false);
+    const [pitchInitialized, setPitchInitialized] = useState(false); // GrainPlayers only init on first pitch use
     const pitchActiveRef = useRef(false); // Whether pitch shift audio is active
 
     // Helper: load a job by ID
@@ -277,8 +278,11 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
     }, [status, videoUrl]);
 
     // Setup GrainPlayer for audio playback (Backing + Vocals)
+    // Only initializes after user first interacts with pitch controls to avoid
+    // creating a suspended AudioContext on iOS that silences the native video element.
     useEffect(() => {
         if (status !== 'completed' || !videoUrl) return;
+        if (!pitchInitialized) return;
 
         let cancelled = false;
 
@@ -358,7 +362,7 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
             setPitchReady(false);
             pitchActiveRef.current = false;
         };
-    }, [status, videoUrl, vocalsUrl, instrumentalUrl]);
+    }, [status, videoUrl, vocalsUrl, instrumentalUrl, pitchInitialized]);
 
     // Start GrainPlayers synced to Transport once they're ready
     useEffect(() => {
@@ -485,6 +489,7 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
 
     // Handle pitch change from user (needs Tone.start from gesture)
     const changePitch = async (delta: number) => {
+        if (!pitchInitialized) setPitchInitialized(true); // Triggers GrainPlayer setup on first use
         await Tone.start();
         setPitchSemitones(s => s + delta);
     };
@@ -608,6 +613,11 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                 {/* Completed State (Video Player) */}
                 {status === 'completed' && videoUrl && (
                     <div className="space-y-6 animate-fade-in">
+                        {/* Mobile silent mode hint */}
+                        <div className="md:hidden px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-2 text-yellow-200 text-xs">
+                            <Music className="w-3 h-3 shrink-0" />
+                            <span>若沒有聲音，請確認手機側邊靜音開關已關閉。</span>
+                        </div>
                         <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-2xl relative group">
                             <video
                                 key={videoUrl}

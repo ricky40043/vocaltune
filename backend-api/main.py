@@ -280,6 +280,7 @@ class JobStatusResponse(BaseModel):
     message: str = ""
     file_url: Optional[str] = None
     vocals_url: Optional[str] = None
+    instrumental_url: Optional[str] = None
     tracks: Optional[dict] = None
     error: Optional[str] = None
 
@@ -887,7 +888,12 @@ async def get_status(job_id: str):
             vocals_path = video_path.parent / "vocals.mp3"
             if vocals_path.exists():
                 restored_status["vocals_url"] = f"/files/karaoke/{date_folder}/{job_id}/vocals.mp3"
-                
+
+            # Check for instrumental
+            instrumental_path = video_path.parent / "instrumental.mp3"
+            if instrumental_path.exists():
+                restored_status["instrumental_url"] = f"/files/karaoke/{date_folder}/{job_id}/instrumental.mp3"
+
             update_job_status(job_id, restored_status)
             status = restored_status
             
@@ -919,6 +925,7 @@ async def get_status(job_id: str):
         message=status.get("message", ""),
         file_url=status.get("file_url"),
         vocals_url=status.get("vocals_url"),
+        instrumental_url=status.get("instrumental_url"),
         tracks=status.get("tracks"),
         error=status.get("error")
     )

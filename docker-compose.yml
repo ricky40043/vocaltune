@@ -5,7 +5,7 @@ services:
     build: .
     container_name: vocal-studio
     ports:
-      - "8080:8080"
+      - "18300:8080"
     volumes:
       # Persistent storage for downloads and separated tracks
       - ./backend-api/downloads:/app/backend-api/downloads
