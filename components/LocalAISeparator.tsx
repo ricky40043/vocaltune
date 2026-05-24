@@ -261,8 +261,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                 Object.entries(tracks).forEach(([name, track]) => {
                     const volNode = volNodes[name];
                     if (volNode) {
-                        const effectiveVol = (track.muted) ? -Infinity : Tone.gainToDb(track.volume);
-                        volNode.volume.value = effectiveVol;
+                        volNode.volume.value = track.muted ? -96 : Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
                     }
                 });
             });
@@ -281,24 +280,13 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [status]); // Run once when completed
 
-    // Update mute/solo/volume
+    // Update mute/solo/volume — directly set volNode.value (never -Infinity)
     useEffect(() => {
-        const players = playersRef.current;
-        if (!players) return;
-
         Object.entries(tracks).forEach(([name, track]: [string, TrackState]) => {
-            if (!players.has(name)) return;
-            const p = players.player(name);
-
-            // Use player.mute to avoid -Infinity dB ramp issue in Web Audio API
-            const shouldMute = track.muted || (soloedTrack !== null && name !== soloedTrack);
-            p.mute = shouldMute;
-
-            // Apply volume level when not muted
             const volNode = volumeNodesRef.current[name];
-            if (volNode && !shouldMute) {
-                volNode.volume.value = track.volume <= 0 ? -96 : Tone.gainToDb(track.volume);
-            }
+            if (!volNode) return;
+            const shouldMute = track.muted || (soloedTrack !== null && name !== soloedTrack);
+            volNode.volume.value = shouldMute ? -96 : Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
         });
     }, [tracks, soloedTrack]);
 
@@ -630,6 +618,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                                 onMuteToggle={() => toggleMute(name)}
                                 onSoloToggle={() => toggleSolo(name)}
                                 isSoloed={soloedTrack === name}
+                                onPlayToggle={togglePlay}
                                 audioElement={null}
                                 forcedCurrentTime={currentTime}
                                 forcedIsPlaying={isPlaying}

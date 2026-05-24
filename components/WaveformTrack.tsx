@@ -13,6 +13,7 @@ interface WaveformTrackProps {
     onMuteToggle: () => void;
     onSoloToggle?: () => void;
     isSoloed?: boolean;
+    onPlayToggle?: () => void;
     // New: Controlled Mode Props
     forcedCurrentTime?: number;
     forcedIsPlaying?: boolean;
@@ -43,6 +44,7 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
     onMuteToggle,
     onSoloToggle,
     isSoloed,
+    onPlayToggle,
     audioElement,
     forcedCurrentTime,
     forcedIsPlaying,
@@ -102,10 +104,12 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
     // Independent Play Toggle
     const togglePlay = (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!audioElement) return;
-
+        if (!audioElement) {
+            // Controlled mode: delegate to parent's global play toggle
+            onPlayToggle?.();
+            return;
+        }
         onInteractionStart?.();
-
         if (isPlaying) {
             audioElement.pause();
         } else {
