@@ -205,14 +205,14 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
     useEffect(() => {
         if (status !== 'completed' || Object.keys(tracks).length === 0) return;
 
-        const initTone = async () => {
-            // Cleanup if exists
+        const initTone = () => {
+            // Cleanup
             if (playersRef.current) {
                 playersRef.current.dispose();
-                Object.values(volumeNodesRef.current).forEach(n => n.dispose());
+                playersRef.current = null;
             }
+            volumeNodesRef.current = {};
 
-            // Sync Transport
             Tone.Transport.stop();
             Tone.Transport.seconds = 0;
             setCurrentTime(0);
@@ -222,49 +222,34 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                 urls[name] = track.url;
             });
 
-            console.log('Initializing Tone.Players with:', urls);
-
-            const volNodes: Record<string, Tone.Volume> = {};
-
-            // Create Players
+            // Create and connect Players to speakers
             const players = new Tone.Players(urls, () => {
-                console.log('All buffers loaded');
-
-                // Configure Routing
+                // All buffers loaded — sync each player to Transport
                 Object.keys(urls).forEach(name => {
                     if (players.has(name)) {
-                        const p = players.player(name);
-                        p.sync().start(0); // Sync all to Transport
-
-                        const vol = new Tone.Volume(0).toDestination();
-                        p.disconnect();
-                        p.connect(vol);
-                        volNodes[name] = vol;
+                        players.player(name).sync().start(0);
                     }
                 });
 
-                // Set duration from vocals or first track
-                if (players.has('vocals')) {
-                    setDuration(players.player('vocals').buffer.duration);
-                } else {
-                    // Fallback duration
-                    const first = Object.keys(urls)[0];
-                    if (first && players.has(first)) {
-                        setDuration(players.player(first).buffer.duration);
-                    }
+                // Set duration
+                const durationSource = players.has('vocals') ? 'vocals' : Object.keys(urls)[0];
+                if (durationSource && players.has(durationSource)) {
+                    setDuration(players.player(durationSource).buffer.duration);
                 }
 
                 playersRef.current = players;
-                volumeNodesRef.current = volNodes;
 
-                // Init volumes
+                // Apply initial per-track volumes via player.volume directly
                 Object.entries(tracks).forEach(([name, track]) => {
-                    const volNode = volNodes[name];
-                    if (volNode) {
-                        volNode.volume.value = track.muted ? -96 : Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
+                    if (players.has(name)) {
+                        players.player(name).volume.value =
+                            track.muted ? -96 : Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
                     }
                 });
             });
+
+            // Connect the Players collection output to audio destination
+            players.toDestination();
         };
 
         initTone();
@@ -274,19 +259,20 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                 playersRef.current.dispose();
                 playersRef.current = null;
             }
-            Object.values(volumeNodesRef.current).forEach(n => n.dispose());
             volumeNodesRef.current = {};
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [status]); // Run once when completed
 
-    // Update mute/solo/volume — directly set volNode.value (never -Infinity)
+    // Update mute/solo/volume via player.volume (player's own built-in gain)
     useEffect(() => {
+        const players = playersRef.current;
+        if (!players) return;
         Object.entries(tracks).forEach(([name, track]: [string, TrackState]) => {
-            const volNode = volumeNodesRef.current[name];
-            if (!volNode) return;
+            if (!players.has(name)) return;
             const shouldMute = track.muted || (soloedTrack !== null && name !== soloedTrack);
-            volNode.volume.value = shouldMute ? -96 : Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
+            players.player(name).volume.value =
+                shouldMute ? -96 : Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
         });
     }, [tracks, soloedTrack]);
 
