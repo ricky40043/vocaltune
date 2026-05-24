@@ -34,7 +34,7 @@ export const ControlSlider: React.FC<ControlSliderProps> = ({
         </div>
         <div className="flex items-center gap-2">
           <span className="text-brand-glow font-bold font-mono text-lg">
-            {displayValue ?? value}{unit}
+            {displayValue !== undefined && displayValue !== null ? displayValue : `${value}${unit}`}
           </span>
           {onReset && (
             <button 

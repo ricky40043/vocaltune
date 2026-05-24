@@ -331,10 +331,11 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     setIsRepeatActive(false);
     setOriginalBpm(120);
 
-    if (player) {
-      player.playbackRate = 1.0;
-      player.detune = 0;
-      player.volume.value = 0;
+    const p = playerRef.current;
+    if (p) {
+      p.playbackRate = 1.0;
+      p.detune = 0;
+      p.volume.value = 0;
     }
     if (eqRef.current) {
       eqRef.current.low.value = 0;
@@ -443,10 +444,11 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   };
 
   const updatePlayerSettings = () => {
-    if (!player) return;
-    player.playbackRate = playbackRate;
-    player.detune = detune;
-    player.volume.value = volume;
+    const p = playerRef.current;
+    if (!p) return;
+    p.playbackRate = playbackRate;
+    p.detune = detune;
+    p.volume.value = volume;
   };
 
   useEffect(() => { updatePlayerSettings(); }, [playbackRate, detune, volume]);
