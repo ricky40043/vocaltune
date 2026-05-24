@@ -102,28 +102,22 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
   const savedTimeRef = useRef(0);
 
-  // Isolation: Handle Tab Switching
-  // [Debug] Disabled to match v1 logic (Jan 26) where play/pause was manual only.
-  // useEffect(() => {
-  //   if (!player) return;
-
-  //   if (isActive) {
-  //     // Restore timeline
-  //     Tone.Transport.seconds = savedTimeRef.current;
-  //     setCurrentTime(savedTimeRef.current);
-
-  //     // Resume
-  //     player.sync();
-  //   } else {
-  //     // Save timeline before stopping
-  //     savedTimeRef.current = Tone.Transport.seconds;
-
-  //     // Background: Mute and Unsync
-  //     player.unsync();
-  //     setIsPlaying(false);
-  //     Tone.Transport.stop(); // Stop global transport
-  //   }
-  // }, [isActive, player]);
+  // Isolation: Handle Tab Switching — unsync from Transport when tab is hidden
+  useEffect(() => {
+    const p = playerRef.current;
+    if (!p) return;
+    if (!isActive) {
+      p.unsync();
+      setIsPlaying(false);
+      if (Tone.Transport.state === 'started') {
+        Tone.Transport.pause();
+      }
+    } else {
+      // Re-sync when coming back to pitcher tab
+      p.sync().start(0);
+      Tone.Transport.seconds = 0;
+    }
+  }, [isActive]);
 
   const [lowGain, setLowGain] = useState(0);
   const [midGain, setMidGain] = useState(0);
