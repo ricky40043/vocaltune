@@ -281,21 +281,23 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [status]); // Run once when completed
 
-    // Update volumes (with Solo Logic)
+    // Update mute/solo/volume
     useEffect(() => {
+        const players = playersRef.current;
+        if (!players) return;
+
         Object.entries(tracks).forEach(([name, track]: [string, TrackState]) => {
+            if (!players.has(name)) return;
+            const p = players.player(name);
+
+            // Use player.mute to avoid -Infinity dB ramp issue in Web Audio API
+            const shouldMute = track.muted || (soloedTrack !== null && name !== soloedTrack);
+            p.mute = shouldMute;
+
+            // Apply volume level when not muted
             const volNode = volumeNodesRef.current[name];
-            if (volNode) {
-                let effectiveVolume = track.muted ? 0 : track.volume;
-
-                if (soloedTrack) {
-                    if (name !== soloedTrack) {
-                        effectiveVolume = 0;
-                    }
-                }
-
-                const db = (effectiveVolume === 0) ? -Infinity : Tone.gainToDb(effectiveVolume);
-                volNode.volume.rampTo(db, 0.1);
+            if (volNode && !shouldMute) {
+                volNode.volume.value = track.volume <= 0 ? -96 : Tone.gainToDb(track.volume);
             }
         });
     }, [tracks, soloedTrack]);
@@ -304,7 +306,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
     const togglePlay = async () => {
         if (!playersRef.current) return;
 
-        await Tone.start();
+        const toneReady = Tone.start(); // synchronous call within gesture handler (iOS requirement)
 
         if (isPlaying) {
             Tone.Transport.pause();
@@ -313,6 +315,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                 cancelAnimationFrame(animationRef.current);
             }
         } else {
+            await toneReady;
             Tone.Transport.start();
             setIsPlaying(true);
 

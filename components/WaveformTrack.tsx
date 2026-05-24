@@ -11,6 +11,8 @@ interface WaveformTrackProps {
     muted: boolean;
     onVolumeChange: (volume: number) => void;
     onMuteToggle: () => void;
+    onSoloToggle?: () => void;
+    isSoloed?: boolean;
     // New: Controlled Mode Props
     forcedCurrentTime?: number;
     forcedIsPlaying?: boolean;
