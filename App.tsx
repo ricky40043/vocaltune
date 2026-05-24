@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Music, Download, Upload, ExternalLink, Layers, Youtube, FileAudio, ArrowRight, AlertTriangle, CheckCircle2, Search, Disc, Loader2, Music2, SplitSquareVertical, FileMusic, LogIn, User } from 'lucide-react';
+import { Music, Download, Upload, ExternalLink, Layers, Youtube, FileAudio, ArrowRight, AlertTriangle, CheckCircle2, Search, Disc, Loader2, Music2, SplitSquareVertical, FileMusic, LogIn, User, Zap } from 'lucide-react';
 import { getYouTubeID } from './utils/youtube';
 import { LocalPlayer } from './components/LocalPlayer';
 import { LocalAISeparator } from './components/LocalAISeparator';
@@ -377,18 +377,18 @@ export default function App() {
                                         ) : downloadStatus === 'completed' ? (
                                             <CheckCircle2 size={28} />
                                         ) : (
-                                            <Download size={28} />
+                                            <Zap size={28} />
                                         )}
                                     </div>
                                     <div>
                                         <div className="font-bold text-white text-xl md:text-2xl">
-                                            {downloadStatus === 'downloading' ? '下載中...' :
+                                            {downloadStatus === 'downloading' ? '轉換中...' :
                                                 downloadStatus === 'completed' ? '轉換完成' :
-                                                    '下載音訊'}
+                                                    '轉換音訊'}
                                         </div>
                                         <div className="text-sm md:text-base text-white/80">
                                             {downloadStatus === 'downloading' ? downloadMessage :
-                                                downloadStatus === 'completed' ? '音樂已載入，可前往變調器或分離器' :
+                                                downloadStatus === 'completed' ? '音訊已就緒' :
                                                     '轉換 YouTube 為音訊檔'}
                                         </div>
                                     </div>
@@ -408,36 +408,24 @@ export default function App() {
                                 </div>
                             )}
 
-                            {/* Quick Nav + Download after completed */}
-                            {downloadStatus === 'completed' && (
-                                <div className="mt-4 space-y-2">
-                                    {/* Download to device button */}
-                                    <a
-                                        href={`${API_BASE_URL}/api/download-file/${downloadJobId}`}
-                                        className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2.5 rounded-xl text-sm font-bold transition-all border border-gray-600"
-                                    >
-                                        <Download size={16} /> 下載到裝置
-                                    </a>
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() => setActiveTab('pitcher')}
-                                            className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-bold transition-all text-sm"
-                                        >
-                                            <Music2 size={16} /> 變調器
-                                        </button>
-                                        <button
-                                            onClick={() => setActiveTab('splitter')}
-                                            className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold transition-all text-sm"
-                                        >
-                                            <SplitSquareVertical size={16} /> 分離器
-                                        </button>
+                            {/* 音樂已載入 card (replaces nav buttons) */}
+                            {downloadStatus === 'completed' && downloadedFileUrl && (
+                                <div className="mt-4 flex items-center gap-3 px-4 py-3 bg-green-900/20 border border-green-500/30 rounded-xl">
+                                    <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center shrink-0">
+                                        <Music size={16} className="text-green-400" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-green-300 font-bold text-sm">音樂已載入</div>
+                                        <div className="text-green-400/60 text-xs truncate">{downloadedFileUrl.split('/').pop()}</div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                        <a href={`${API_BASE_URL}/api/download-file/${downloadJobId}`} className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors" title="下載到裝置">
+                                            <Download size={14} />
+                                        </a>
+                                        <button onClick={() => setActiveTab('pitcher')} className="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors">變調器</button>
+                                        <button onClick={() => setActiveTab('splitter')} className="px-2.5 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 text-white text-xs font-bold transition-colors">分離器</button>
                                         {APP_MODE !== 'main' && (
-                                            <button
-                                                onClick={() => setActiveTab('karaoke')}
-                                                className="flex-1 flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-xl font-bold transition-all text-sm"
-                                            >
-                                                <Music size={16} /> 卡拉OK
-                                            </button>
+                                            <button onClick={() => setActiveTab('karaoke')} className="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-colors">卡拉OK</button>
                                         )}
                                     </div>
                                 </div>
@@ -469,8 +457,8 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* 音樂已載入狀態列 */}
-                    {downloadedFileUrl && (
+                    {/* 音樂已載入狀態列：本地上傳才顯示（YouTube 下載版已在 card 內顯示） */}
+                    {downloadedFileUrl && downloadedFileUrl.startsWith('blob:') && (
                         <div className="flex items-center gap-3 px-4 py-3 bg-green-900/20 border border-green-500/30 rounded-xl">
                             <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center shrink-0">
                                 <Music size={16} className="text-green-400" />

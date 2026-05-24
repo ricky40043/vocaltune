@@ -366,7 +366,27 @@ def analyze_bpm(request: AnalyzeRequest):
     import librosa
     import numpy as np
 
-# ...
+    def resolve_path(file_path: str):
+        if file_path.startswith("/files/downloads/"):
+            return DOWNLOADS_DIR / file_path.split("/files/downloads/")[-1]
+        if file_path.startswith("/files/separated/"):
+            return SEPARATED_DIR / file_path.split("/files/separated/")[-1]
+        return Path(file_path)
+
+    try:
+        path = resolve_path(request.file_path)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+        y, sr = librosa.load(str(path), duration=60, mono=True)
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr)
+        bpm = round(float(tempo[0]))
+        return {"bpm": bpm}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"BPM Analysis Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/analyze-key")
 def analyze_key(request: AnalyzeRequest):
