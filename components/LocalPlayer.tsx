@@ -277,27 +277,29 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         newPlayer.detune = detune;
         newPlayer.volume.value = volume;
 
-        // Analyze BPM from backend
-        try {
-          const bpmRes = await fetch(`${API_BASE_URL}/api/analyze-bpm`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ file_path: audioFileUrl })
-          });
-          if (bpmRes.ok) {
-            const bpmData = await bpmRes.json();
-            if (bpmData && typeof bpmData.bpm === 'number') {
-              setOriginalBpm(bpmData.bpm);
-              console.log('Analyzed BPM:', bpmData.bpm);
-            } else {
-              setOriginalBpm(120);
-            }
-          } else {
-            setOriginalBpm(120);
-          }
-        } catch (bpmErr) {
-          console.error('BPM Analysis failed:', bpmErr);
+        // Analyze BPM and Key in parallel (skip for blob URLs — backend can't access them)
+        const canAnalyze = !audioFileUrl.startsWith('blob:');
+        const analyzeBody = JSON.stringify({ file_path: audioFileUrl });
+        const analyzeHeaders = { 'Content-Type': 'application/json' };
+        const [bpmResult, keyResult] = await Promise.allSettled([
+          canAnalyze
+            ? fetch(`${API_BASE_URL}/api/analyze-bpm`, { method: 'POST', headers: analyzeHeaders, body: analyzeBody }).then(r => r.ok ? r.json() : null)
+            : Promise.resolve(null),
+          canAnalyze
+            ? fetch(`${API_BASE_URL}/api/analyze-key`, { method: 'POST', headers: analyzeHeaders, body: analyzeBody }).then(r => r.ok ? r.json() : null)
+            : Promise.resolve(null),
+        ]);
+
+        if (bpmResult.status === 'fulfilled' && bpmResult.value?.bpm) {
+          setOriginalBpm(bpmResult.value.bpm);
+          console.log('Analyzed BPM:', bpmResult.value.bpm);
+        } else {
           setOriginalBpm(120);
+        }
+
+        if (keyResult.status === 'fulfilled' && keyResult.value?.key) {
+          setOriginalKey(keyResult.value.key);
+          console.log('Analyzed Key:', keyResult.value.key, '(confidence:', keyResult.value.confidence, ')');
         }
       } catch (err) {
         console.error('Failed to load external audio:', err);
@@ -657,6 +659,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
                 <div className="flex items-center gap-2 bg-gray-800/80 px-2 py-1 rounded-lg border border-gray-700">
                   <span className="text-[10px] text-gray-400">原曲:</span>
                   <select value={originalKey} onChange={(e) => setOriginalKey(e.target.value)} className="bg-transparent text-xs font-mono font-bold text-white outline-none cursor-pointer appearance-none text-center min-w-[30px]">{NOTES.map(n => <option key={n} value={n}>{n}</option>)}</select>
+                  {isLoaded && <span className="text-[9px] text-green-400/70 font-mono">自動</span>}
                 </div>
               </div>
 

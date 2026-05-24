@@ -368,6 +368,43 @@ def analyze_bpm(request: AnalyzeRequest):
 
 # ...
 
+@app.post("/api/analyze-key")
+def analyze_key(request: AnalyzeRequest):
+    """自動偵測音訊調性 (Key)"""
+    import librosa
+    import numpy as np
+
+    KEY_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+
+    def resolve_path(file_path: str):
+        # Accept server-side relative path like /files/downloads/xxx.m4a
+        if file_path.startswith("/files/downloads/"):
+            filename = file_path.split("/files/downloads/")[-1]
+            return DOWNLOADS_DIR / filename
+        if file_path.startswith("/files/separated/"):
+            filename = file_path.split("/files/separated/")[-1]
+            return SEPARATED_DIR / filename
+        return Path(file_path)
+
+    try:
+        path = resolve_path(request.file_path)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+
+        y, sr = librosa.load(str(path), duration=60, mono=True)
+        # Use chroma energy to estimate key
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+        chroma_mean = chroma.mean(axis=1)
+        key_idx = int(np.argmax(chroma_mean))
+        key = KEY_NAMES[key_idx]
+        confidence = float(chroma_mean[key_idx] / chroma_mean.sum())
+        return {"key": key, "confidence": round(confidence, 3)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Key Analysis Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/analyze-upload")
 def analyze_upload(file: UploadFile = File(...)):
     """上傳並分析檔案 BPM"""
