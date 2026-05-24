@@ -221,8 +221,8 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
       }
 
       try {
-        // Tone.start() removed to prevent mobile hang on prop update
-        await Tone.start();
+        // Tone.start() intentionally not called here — requires user gesture on mobile.
+        // It is called in togglePlay() instead.
         const response = await fetch(audioFileUrl);
         const arrayBuffer = await response.arrayBuffer();
 
@@ -358,28 +358,20 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   const togglePlay = async () => {
     if (!player || !isLoaded) return;
 
-    // Resume context if suspended (Critical for playback)
-    if (Tone.context.state !== 'running') {
-      await Tone.context.resume();
-    }
-    await Tone.start();
-
-    // CRITICAL WARNING: DO NOT ADD 'silentOsc' HERE.
-    // 嚴禁修改：iOS Audio Unlock Hack caused mute issues. Do not re-introduce.
-    // iOS Audio Unlock Hack (Removed per user request)
-    // const silentOsc = new Tone.Oscillator(440, "sine").toDestination();
-    // silentOsc.volume.value = -100; // Almost silent, but technically active
-    // silentOsc.start().stop("+0.1");
+    // iOS requires Tone.start() to be called synchronously within the user gesture handler.
+    // Awaiting before Tone.start() exits the trusted-gesture call stack and iOS will reject the unlock.
+    // Solution: fire Tone.start() synchronously first, then await it for the play path.
+    const toneReady = Tone.start();
 
     if (isPlaying) {
       Tone.Transport.pause();
       setIsPlaying(false);
     } else {
+      await toneReady; // wait for AudioContext running before starting transport
       console.log('[LocalPlayer] Starting Playback...');
       Tone.Transport.start();
       setIsPlaying(true);
 
-      // Verification
       setTimeout(() => {
         console.log(`[LocalPlayer] Playback Check: Transport=${Tone.Transport.state}, Player=${player.state}`);
       }, 500);
@@ -554,10 +546,10 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
   return (
     <div className="space-y-4 animate-fade-in pb-12">
-      {/* Silent Mode Tip (Mobile Only) */}
-      <div className="md:hidden px-4 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-2 text-yellow-200 text-xs">
+      {/* Silent Mode Tip (Mobile Only) — clickable to unlock AudioContext on iOS */}
+      <div onClick={() => Tone.start()} className="md:hidden px-4 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-2 text-yellow-200 text-xs cursor-pointer active:bg-yellow-500/20">
         <Volume2 size={14} />
-        <span>若沒有聲音，請檢查手機是否開啟靜音模式（側邊開關），或點擊以恢復音訊引擎。</span>
+        <span>若沒有聲音，請確認手機未開靜音（側邊開關），或<strong>點此恢復音訊引擎</strong>。</span>
       </div>
 
       {/* Debug Info Panel Removed per user request */}
