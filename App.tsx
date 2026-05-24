@@ -81,6 +81,8 @@ export default function App() {
     const [downloadProgress, setDownloadProgress] = useState(0);
     const [downloadMessage, setDownloadMessage] = useState('');
     const [downloadedFileUrl, setDownloadedFileUrl] = useState<string | null>(null);
+    const [downloadedSourceVideoId, setDownloadedSourceVideoId] = useState<string | null>(null);
+    const [showRedownloadBanner, setShowRedownloadBanner] = useState(false);
 
     const handleUrlCheck = (e?: React.FormEvent) => {
         if (e) e.preventDefault();
@@ -140,19 +142,8 @@ export default function App() {
                     if (statusData.status === 'completed') {
                         setDownloadStatus('completed');
                         setDownloadedFileUrl(statusData.file_url);
-
-                        // Client-side download trigger:
-                        // Use dedicated download API that forces browser to download
-                        try {
-                            const downloadUrl = `${API_BASE_URL}/api/download-file/${data.job_id}`;
-                            console.log('Triggering download for:', downloadUrl);
-
-                            // Open in new window to trigger download
-                            window.open(downloadUrl, '_blank');
-                        } catch (e) {
-                            console.error('Auto-download failed:', e);
-                        }
-
+                        setDownloadedSourceVideoId(videoId);
+                        setShowRedownloadBanner(false);
                         clearInterval(pollInterval);
                     } else if (statusData.status === 'error') {
                         setDownloadStatus('error');
@@ -317,7 +308,14 @@ export default function App() {
                                         setUrl(e.target.value);
                                         if (urlError) setUrlError(null);
                                         const id = getYouTubeID(e.target.value);
-                                        if (id) setVideoId(id);
+                                        if (id) {
+                                            setVideoId(id);
+                                            if (downloadedFileUrl && id !== downloadedSourceVideoId) {
+                                                setShowRedownloadBanner(true);
+                                            }
+                                        } else {
+                                            setShowRedownloadBanner(false);
+                                        }
                                     }}
                                     placeholder="貼上 YouTube 網址 (或點擊自動貼上)..."
                                     className={`w-full bg-gray-900 border-2 rounded-xl py-3 pl-10 pr-12 text-sm text-white placeholder-gray-500 outline-none transition-all shadow-inner ${urlError ? 'border-red-500' : 'border-gray-700 focus:border-brand-accent'}`}
@@ -343,6 +341,26 @@ export default function App() {
                                     {urlError}
                                 </div>
                             )}
+
+                            {showRedownloadBanner && (
+                                <div className="mt-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 text-xs flex items-start gap-2">
+                                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                                    <div className="flex-1">
+                                        <div className="font-bold mb-1">偵測到新的影片連結</div>
+                                        <div className="text-yellow-200/70 mb-2">目前音樂仍可使用，或重新下載新影片。</div>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => setShowRedownloadBanner(false)}
+                                                className="px-3 py-1 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold transition-colors"
+                                            >繼續使用舊的</button>
+                                            <button
+                                                onClick={() => { setShowRedownloadBanner(false); handleDirectDownload(); }}
+                                                className="px-3 py-1 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black text-xs font-bold transition-colors"
+                                            >重新下載</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Download Button */}
@@ -365,13 +383,13 @@ export default function App() {
                                     <div>
                                         <div className="font-bold text-white text-xl md:text-2xl">
                                             {downloadStatus === 'downloading' ? '下載中...' :
-                                                downloadStatus === 'completed' ? '下載完成 (點擊重新轉換)' :
+                                                downloadStatus === 'completed' ? '轉換完成' :
                                                     '下載音訊'}
                                         </div>
                                         <div className="text-sm md:text-base text-white/80">
                                             {downloadStatus === 'downloading' ? downloadMessage :
-                                                downloadStatus === 'completed' ? '或前往變調器/分離器' :
-                                                    '一鍵下載 MP3'}
+                                                downloadStatus === 'completed' ? '音樂已載入，可前往變調器或分離器' :
+                                                    '轉換 YouTube 為音訊檔'}
                                         </div>
                                     </div>
                                 </div>
@@ -390,31 +408,38 @@ export default function App() {
                                 </div>
                             )}
 
-                            {/* Quick Nav after download */}
+                            {/* Quick Nav + Download after completed */}
                             {downloadStatus === 'completed' && (
-                                <div className="mt-6 flex gap-2 md:gap-4">
-                                    <button
-                                        onClick={() => setActiveTab('pitcher')}
-                                        className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white py-3 md:py-4 rounded-xl font-bold transition-all"
+                                <div className="mt-4 space-y-2">
+                                    {/* Download to device button */}
+                                    <a
+                                        href={`${API_BASE_URL}/api/download-file/${downloadJobId}`}
+                                        className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2.5 rounded-xl text-sm font-bold transition-all border border-gray-600"
                                     >
-                                        <Music2 size={18} /> 變調器
-                                    </button>
-                                    <button
-                                        onClick={() => setActiveTab('splitter')}
-                                        className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white py-3 md:py-4 rounded-xl font-bold transition-all"
-                                    >
-                                        <SplitSquareVertical size={18} /> 分離器
-                                    </button>
-
-                                    {/* Hide Karaoke button if not in karaoke/full mode */}
-                                    {APP_MODE !== 'main' && (
+                                        <Download size={16} /> 下載到裝置
+                                    </a>
+                                    <div className="flex gap-2">
                                         <button
-                                            onClick={() => setActiveTab('karaoke')}
-                                            className="flex-1 flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white py-3 md:py-4 rounded-xl font-bold transition-all"
+                                            onClick={() => setActiveTab('pitcher')}
+                                            className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-bold transition-all text-sm"
                                         >
-                                            <Music size={18} /> 卡拉OK
+                                            <Music2 size={16} /> 變調器
                                         </button>
-                                    )}
+                                        <button
+                                            onClick={() => setActiveTab('splitter')}
+                                            className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold transition-all text-sm"
+                                        >
+                                            <SplitSquareVertical size={16} /> 分離器
+                                        </button>
+                                        {APP_MODE !== 'main' && (
+                                            <button
+                                                onClick={() => setActiveTab('karaoke')}
+                                                className="flex-1 flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-xl font-bold transition-all text-sm"
+                                            >
+                                                <Music size={16} /> 卡拉OK
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -443,6 +468,25 @@ export default function App() {
                             </label>
                         </div>
                     </div>
+
+                    {/* 音樂已載入狀態列 */}
+                    {downloadedFileUrl && (
+                        <div className="flex items-center gap-3 px-4 py-3 bg-green-900/20 border border-green-500/30 rounded-xl">
+                            <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center shrink-0">
+                                <Music size={16} className="text-green-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <div className="text-green-300 font-bold text-sm">音樂已載入</div>
+                                <div className="text-green-400/60 text-xs truncate">
+                                    {downloadedFileUrl.startsWith('blob:') ? '本地上傳的音訊檔案' : downloadedFileUrl.split('/').pop()}
+                                </div>
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                                <button onClick={() => setActiveTab('pitcher')} className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors">變調器</button>
+                                <button onClick={() => setActiveTab('splitter')} className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 text-white text-xs font-bold transition-colors">分離器</button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* TAB 2: PITCHER - 變調器 */}
