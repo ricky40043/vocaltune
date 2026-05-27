@@ -128,14 +128,28 @@ async def queue_processor():
                         
                         await task
                         
-                        # Success
+                        # Check actual job result from job_status_store
+                        final_status = get_job_status(job_id)
+                        actual_status = final_status.get("status", "") if final_status else ""
+                        
                         queue = load_queue(user)
-                        for item in queue:
-                            if item["id"] == job_id:
-                                item["status"] = "completed"
-                                item["progress"] = 100
-                        save_queue(queue, user)
-                        logging.info(f"Queue Item Completed: {job_id}")
+                        if actual_status == "completed":
+                            # Success
+                            for item in queue:
+                                if item["id"] == job_id:
+                                    item["status"] = "completed"
+                                    item["progress"] = 100
+                            save_queue(queue, user)
+                            logging.info(f"Queue Item Completed: {job_id}")
+                        else:
+                            # Job finished but didn't reach completed state
+                            error_msg = final_status.get("error", "Job did not complete successfully") if final_status else "No status found"
+                            for item in queue:
+                                if item["id"] == job_id:
+                                    item["status"] = "error"
+                                    item["error"] = error_msg
+                            save_queue(queue, user)
+                            logging.error(f"Queue Item Failed (status={actual_status}): {job_id} - {error_msg}")
                         
                     except Exception as e:
                         logging.error(f"Queue Job Failed: {e}")

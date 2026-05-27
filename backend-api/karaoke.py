@@ -180,6 +180,7 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
             "python", "-u", "-m", "demucs",
             "-n", "htdemucs_6s",
             "-d", "cpu",
+            "-j", "0",
             "--out", str(work_dir),
             str(extracted_audio)
         ]

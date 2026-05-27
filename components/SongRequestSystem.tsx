@@ -196,9 +196,9 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, 
                     )}
 
                     {results.map((video) => (
-                        <div key={video.id} className="group bg-gray-800/40 hover:bg-gray-800/80 border border-gray-700/50 hover:border-pink-500/50 rounded-xl p-3 flex gap-4 transition-all duration-300">
+                        <div key={video.id} className="group bg-gray-800/40 hover:bg-gray-800/80 border border-gray-700/50 hover:border-pink-500/50 rounded-xl p-3 flex flex-col md:flex-row gap-4 transition-all duration-300">
                             {/* Thumbnail / Inline Player */}
-                            <div className="relative w-40 aspect-video bg-black rounded-lg overflow-hidden shrink-0 cursor-pointer shadow-lg"
+                            <div className="relative w-full md:w-56 aspect-video bg-black rounded-lg overflow-hidden shrink-0 cursor-pointer shadow-lg"
                                 onClick={() => setActivePreviewId(activePreviewId === video.id ? null : video.id)}>
 
                                 {activePreviewId === video.id ? (
@@ -215,11 +215,11 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, 
                                     <>
                                         <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
                                         <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition">
-                                            <div className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 group-hover:scale-110 transition">
-                                                <Play size={18} className="text-white fill-white" />
+                                            <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 group-hover:scale-110 transition">
+                                                <Play size={24} className="text-white fill-white" />
                                             </div>
                                         </div>
-                                        <div className="absolute bottom-1 right-1 bg-black/80 px-1.5 rounded text-[10px] font-mono text-white">
+                                        <div className="absolute bottom-1 right-1 bg-black/80 px-1.5 rounded text-xs font-mono text-white">
                                             {video.duration}
                                         </div>
                                     </>
@@ -230,23 +230,26 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, 
                             <div className="flex-1 min-w-0 flex flex-col justify-between py-1">
                                 <div>
                                     <h3
-                                        className="font-bold text-white text-lg line-clamp-2 leading-tight group-hover:text-pink-400 transition cursor-pointer"
+                                        className="font-bold text-white text-lg md:text-xl line-clamp-2 leading-tight group-hover:text-pink-400 transition cursor-pointer"
                                         onClick={() => setActivePreviewId(activePreviewId === video.id ? null : video.id)}
                                     >
                                         {video.title}
                                     </h3>
-                                    <p className="text-gray-400 text-sm mt-1">{video.uploader}</p>
+                                    <p className="text-gray-400 text-sm mt-1 flex items-center gap-1">
+                                        <Youtube size={14} />
+                                        {video.uploader}
+                                    </p>
                                 </div>
-                                <div className="flex items-center justify-between mt-2">
+                                <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                     <button
                                         onClick={() => addToQueue(video)}
-                                        className="flex items-center gap-2 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg shadow-purple-900/20 active:scale-95 transition-all"
+                                        className="w-full md:w-auto justify-center flex items-center gap-2 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white px-6 py-2.5 rounded-lg font-bold text-sm shadow-lg shadow-purple-900/20 active:scale-95 transition-all"
                                     >
-                                        <Plus size={16} />
+                                        <Plus size={18} />
                                         加入點歌
                                     </button>
                                     {activePreviewId === video.id && (
-                                        <span className="text-xs text-pink-400 font-mono animate-pulse">Playing Preview...</span>
+                                        <span className="text-xs text-pink-400 font-mono animate-pulse text-center">正在預覽中...</span>
                                     )}
                                 </div>
                             </div>

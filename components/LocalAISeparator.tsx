@@ -43,6 +43,10 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
     const [progress, setProgress] = useState(0);
     const [statusMessage, setStatusMessage] = useState('');
     const [error, setError] = useState<string | null>(null);
+    
+    // Remaining time estimation
+    const startTimeRef = useRef<number | null>(null);
+    const [remainingTimeText, setRemainingTimeText] = useState<string>('');
 
     // Track state
     const [tracks, setTracks] = useState<Record<string, TrackState>>({});
@@ -195,6 +199,37 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
         return () => clearInterval(pollInterval);
     }, [jobId, status]);
 
+    // 預估剩餘時間計算
+    useEffect(() => {
+        if (status === 'separating') {
+            if (!startTimeRef.current && progress > 0) {
+                startTimeRef.current = Date.now();
+            }
+            
+            if (startTimeRef.current && progress > 0 && progress < 100) {
+                const elapsed = Date.now() - startTimeRef.current;
+                const remaining = (elapsed * (100 - progress)) / progress;
+                
+                const totalSeconds = Math.round(remaining / 1000);
+                const minutes = Math.floor(totalSeconds / 60);
+                const seconds = totalSeconds % 60;
+                
+                if (minutes > 0) {
+                    setRemainingTimeText(`預估剩餘時間: ${minutes} 分 ${seconds} 秒`);
+                } else {
+                    setRemainingTimeText(`預估剩餘時間: ${seconds} 秒`);
+                }
+            } else if (progress === 0) {
+                setRemainingTimeText('計算剩餘時間中...');
+            } else if (progress >= 100) {
+                setRemainingTimeText('即將完成...');
+            }
+        } else {
+            startTimeRef.current = null;
+            setRemainingTimeText('');
+        }
+    }, [status, progress]);
+
     // Initialize Tone.Players - Only run when status becomes completed
     useEffect(() => {
         if (status !== 'completed' || Object.keys(tracks).length === 0) return;
@@ -232,11 +267,12 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                 playersRef.current = playerMap;
                 volumeNodesRef.current = volMap;
 
-                // Apply initial volumes
+                // 載入完成後，立刻將當前的 tracks 與 soloedTrack 狀態同步套用到全新的 volume 節點上
                 trackEntries.forEach(([name, track]) => {
                     if (volMap[name]) {
-                        volMap[name].volume.value =
-                            track.muted ? -96 : Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
+                        const shouldMute = track.muted || (soloedTrack !== null && name !== soloedTrack);
+                        volMap[name].mute = shouldMute;
+                        volMap[name].volume.value = Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
                     }
                 });
             };
@@ -270,11 +306,13 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
     // M/S/Volume: directly set Tone.Volume node — this is always in the signal path
     useEffect(() => {
         const volMap = volumeNodesRef.current;
+        if (!volMap) return;
         Object.entries(tracks).forEach(([name, track]: [string, TrackState]) => {
             const vol = volMap[name];
             if (!vol) return;
             const shouldMute = track.muted || (soloedTrack !== null && name !== soloedTrack);
-            vol.volume.value = shouldMute ? -96 : Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
+            vol.mute = shouldMute;
+            vol.volume.value = Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
         });
     }, [tracks, soloedTrack]);
 
@@ -536,8 +574,13 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
             {status === 'separating' && (
                 <div className="space-y-2 p-6 rounded-xl bg-gray-800/50 border border-gray-700">
                     <div className="flex justify-between text-sm text-gray-300 mb-2">
-                        <span>{statusMessage}</span>
-                        <span>{Math.round(progress)}%</span>
+                        <div className="flex flex-col animate-fade-in">
+                            <span>{statusMessage}</span>
+                            {remainingTimeText && (
+                                <span className="text-xs text-purple-400 mt-1 font-medium">{remainingTimeText}</span>
+                            )}
+                        </div>
+                        <span className="font-bold">{Math.round(progress)}%</span>
                     </div>
                     <div className="relative h-3 bg-gray-700 rounded-full overflow-hidden">
                         <div

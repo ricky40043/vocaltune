@@ -64,5 +64,39 @@
     "progress": 100,
     "added_at": "2026-02-12T21:45:29.255736",
     "user": "CCC"
+  },
+  {
+    "id": "ef3c2a04",
+    "youtube_url": "https://www.youtube.com/watch?v=0EVrVb1MEi0",
+    "title": "【ABC恭喜你】2026新年歌《AlexAaron老师/江松恒/Ian Khor/Wong She Wen/张格瑄/黄韵玹/罗𡟯斯/陈蕾娜》官方MV",
+    "thumbnail": "https://i.ytimg.com/vi/0EVrVb1MEi0/hqdefault.jpg",
+    "duration": "3:31",
+    "status": "completed",
+    "progress": 100,
+    "added_at": "2026-02-14T09:02:01.908158",
+    "user": "CCC"
+  },
+  {
+    "id": "37844d5a",
+    "youtube_url": "https://www.youtube.com/watch?v=dIOjs3YRT_U",
+    "title": "【ENG Sub】Demon Slayer: Kimetsu no Yaiba Opening Full『LiSA - Gurenge』",
+    "thumbnail": "https://i.ytimg.com/vi/dIOjs3YRT_U/hqdefault.jpg",
+    "duration": "3:57",
+    "status": "completed",
+    "progress": 100,
+    "added_at": "2026-02-14T23:20:02.254124",
+    "user": "CCC"
+  },
+  {
+    "id": "842ff27a",
+    "youtube_url": "https://www.youtube.com/watch?v=RMFVuCURZIs",
+    "title": "【數碼寶貝OP】Butterfly",
+    "thumbnail": "https://i.ytimg.com/vi/RMFVuCURZIs/hqdefault.jpg",
+    "duration": "4:34",
+    "status": "error",
+    "progress": 82,
+    "added_at": "2026-02-14T23:59:38.061463",
+    "user": "CCC",
+    "error": "Demucs 分離失敗 (Exit Code: 1): /Users/ricky/Desktop/vocaltune---youtube-practice-studio/backend-api/venv/lib/python3.10/site-packages/torchaudio/__init__.py:178: UserWarning: The 'encoding' parameter is not fully supported by TorchCodec AudioEncoder.\n  return save_with_torchcodec(\n/Users/ricky/Desktop/vocaltune---youtube-practice-studio/backend-api/venv/lib/python3.10/site-packages/torchaudio/__init__.py:178: UserWarning: The 'bits_per_sample' parameter is not directly supported by TorchCodec AudioEncoder.\n  return save_with_torchcodec(\nTraceback (most recent call last):\n  File \"/Users/ricky/Desktop/vocaltune---youtube-practice-studio/backend-api/venv/lib/python3.10/site-packages/torchaudio/_torchcodec.py\", line 338, in save_with_torchcodec\n    encoder.to_file(uri, bit_rate=bit_rate)\n  File \"/Users/ricky/Desktop/vocaltune---youtube-practice-studio/backend-api/venv/lib/python3.10/site-packages/torchcodec/encoders/_audio_encoder.py\", line 68, in to_file\n    _core.encode_audio_to_file(\n  File \"/Users/ricky/Desktop/vocaltune---youtube-practice-studio/backend-api/venv/lib/python3.10/site-packages/torch/_ops.py\", line 819, in __call__\n    return self._op(*args, **kwargs)\nRuntimeError: Error in av_interleaved_write_frame: No space left on device\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/runpy.py\", line 196, in _run_module_as_main\n    return _run_code(code, main_globals, None,\n  File \"/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/runpy.py\", line 86, in _run_code\n    exec(code, run_globals)\n  File \"/Users/ricky/Desktop/vocaltune---youtube-practice-studio/backend-api/venv/lib/python3.10/site-packages/demucs/__main__.py\", line 10, in <module>\n    main()\n  File \"/Users/ricky/Desktop/vocaltune---youtube-practice-studio/backend-api/venv/lib/python3.10/site-packages/demucs/separate.py\", line 199, in main\n    save_audio(source, str(stem), **kwargs)\n  File \"/Users/ricky/Desktop/vocaltune---youtube-practice-studio/backend-api/venv/lib/python3.10/site-packages/demucs/audio.py\", line 260, in save_audio\n    ta.save(str(path), wav, sample_rate=samplerate,\n  File \"/Users/ricky/Desktop/vocaltune---youtube-practice-studio/backend-api/venv/lib/python3.10/site-packages/torchaudio/__init__.py\", line 178, in save\n    return save_with_torchcodec(\n  File \"/Users/ricky/Desktop/vocaltune---youtube-practice-studio/backend-api/venv/lib/python3.10/site-packages/torchaudio/_torchcodec.py\", line 340, in save_with_torchcodec\n    raise RuntimeError(f\"Failed to save audio to {uri}: {e}\") from e\nRuntimeError: Failed to save audio to /Users/ricky/Desktop/vocaltune---youtube-practice-studio/backend-api/karaoke_output/20260214/842ff27a/htdemucs_6s/source_audio/guitar.wav: Error in av_interleaved_write_frame: No space left on device\n"
   }
 ]

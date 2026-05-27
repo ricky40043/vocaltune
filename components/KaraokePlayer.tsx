@@ -650,6 +650,14 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                                     <span className="font-bold text-sm">升降Key</span>
                                 </div>
                                 <div className="flex items-center gap-3">
+                                    {pitchSemitones !== 0 && (
+                                        <button
+                                            onClick={() => resetPitch()}
+                                            className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded bg-gray-700/50 hover:bg-gray-600 transition-colors mr-1"
+                                        >
+                                            重置
+                                        </button>
+                                    )}
                                     <button
                                         onClick={() => changePitch(-1)}
                                         className="w-10 h-10 flex items-center justify-center rounded-lg bg-gray-700 hover:bg-gray-600 text-white border border-gray-600 active:scale-95 transition-all"
@@ -668,14 +676,6 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                                     >
                                         <Plus size={18} />
                                     </button>
-                                    {pitchSemitones !== 0 && (
-                                        <button
-                                            onClick={() => resetPitch()}
-                                            className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded bg-gray-700/50 hover:bg-gray-600 transition-colors ml-1"
-                                        >
-                                            重置
-                                        </button>
-                                    )}
                                 </div>
                             </div>
                         </div>
