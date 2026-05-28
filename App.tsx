@@ -18,15 +18,19 @@ const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any)
 type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber' | 'karaoke' | 'request';
 
 export default function App() {
-    // Determine app mode from URL path:
-    //   /ktv  → KTV mode  (卡拉OK + 點歌 only)
-    //   /     → Studio mode (前4個 tabs only)
-    const APP_MODE: 'main' | 'karaoke' = window.location.pathname.startsWith('/ktv')
-        ? 'karaoke'
-        : 'main';
+    // App Mode Configuration
+    // Priority: URL Param > PathName > Env Var > Default
+    const urlParams = new URLSearchParams(window.location.search);
+    const modeParam = urlParams.get('mode');
+
+    const APP_MODE: 'main' | 'karaoke' | 'full' = modeParam as any || (
+        window.location.pathname.startsWith('/ktv')
+            ? 'karaoke'
+            : (import.meta as any).env.VITE_APP_MODE || 'full'
+    );
 
     // User / Login (KTV mode only)
-    const urlParams = new URLSearchParams(window.location.search);
+    // urlParams already declared above
     const currentUser = urlParams.get('user');
     const [showLogin, setShowLogin] = useState(() => {
         return APP_MODE === 'karaoke' && !currentUser;
@@ -289,6 +293,10 @@ export default function App() {
                                 <input
                                     type="text"
                                     onClick={async () => {
+                                        // 手機端點擊輸入框通常是為了喚起鍵盤或使用手機原生的貼上泡泡，自動讀取剪貼簿會造成重複確認的干擾，因此手機端在此直接 return
+                                        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                                        if (isMobile) return;
+
                                         try {
                                             const text = await navigator.clipboard.readText();
                                             if (text && (text.includes('youtube.com') || text.includes('youtu.be'))) {
