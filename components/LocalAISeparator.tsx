@@ -34,7 +34,13 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
     useEffect(() => {
         if (!isActive) {
             setIsPlaying(false);
-            Tone.Transport.pause();
+            if (playersRef.current) {
+                Object.values(playersRef.current).forEach(p => p.unsync());
+            }
+        } else {
+            if (playersRef.current) {
+                Object.values(playersRef.current).forEach(p => p.sync().start(0));
+            }
         }
     }, [isActive]);
     // Job state
@@ -178,11 +184,13 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                     // Initialize tracks
                     const initialTracks: Record<string, TrackState> = {};
                     Object.entries(data.tracks).forEach(([name, url]) => {
-                        initialTracks[name] = {
-                            url: `${API_BASE_URL}${url}`,
-                            volume: 1,
-                            muted: false,
-                        };
+                        if (name !== 'original') {
+                            initialTracks[name] = {
+                                url: `${API_BASE_URL}${url}`,
+                                volume: 1,
+                                muted: false,
+                            };
+                        }
                     });
                     setTracks(initialTracks);
                     clearInterval(pollInterval);
@@ -257,7 +265,11 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
             const onAllLoaded = () => {
                 // Sync all players to Transport
                 Object.keys(playerMap).forEach(name => {
-                    playerMap[name].sync().start(0);
+                    if (isActive) {
+                        playerMap[name].sync().start(0);
+                    } else {
+                        playerMap[name].unsync();
+                    }
                 });
 
                 // Set duration from vocals or first track

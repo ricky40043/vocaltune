@@ -109,9 +109,6 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     if (!isActive) {
       p.unsync();
       setIsPlaying(false);
-      if (Tone.Transport.state === 'started') {
-        Tone.Transport.pause();
-      }
     } else {
       // Re-sync when coming back to pitcher tab
       p.sync().start(0);
@@ -256,7 +253,11 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         }
 
         Tone.Transport.seconds = 0;
-        newPlayer.sync().start(0);
+        if (isActive) {
+          newPlayer.sync().start(0);
+        } else {
+          newPlayer.unsync();
+        }
 
         console.log(`[LocalPlayer] Loaded remote URL: ${audioFileUrl}`);
 
