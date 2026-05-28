@@ -271,8 +271,12 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                 trackEntries.forEach(([name, track]) => {
                     if (volMap[name]) {
                         const shouldMute = track.muted || (soloedTrack !== null && name !== soloedTrack);
-                        volMap[name].mute = shouldMute;
-                        volMap[name].volume.value = Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
+                        if (shouldMute) {
+                            volMap[name].mute = true;
+                        } else {
+                            volMap[name].mute = false;
+                            volMap[name].volume.value = Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
+                        }
                     }
                 });
             };
@@ -311,8 +315,12 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
             const vol = volMap[name];
             if (!vol) return;
             const shouldMute = track.muted || (soloedTrack !== null && name !== soloedTrack);
-            vol.mute = shouldMute;
-            vol.volume.value = Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
+            if (shouldMute) {
+                vol.mute = true;
+            } else {
+                vol.mute = false;
+                vol.volume.value = Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
+            }
         });
     }, [tracks, soloedTrack]);
 
