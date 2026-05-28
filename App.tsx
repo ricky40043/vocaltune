@@ -18,19 +18,15 @@ const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any)
 type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber' | 'karaoke' | 'request';
 
 export default function App() {
-    // App Mode Configuration
-    // Priority: URL Param > PathName > Env Var > Default
-    const urlParams = new URLSearchParams(window.location.search);
-    const modeParam = urlParams.get('mode');
-
-    const APP_MODE: 'main' | 'karaoke' | 'full' = modeParam as any || (
-        window.location.pathname.startsWith('/ktv')
-            ? 'karaoke'
-            : (import.meta as any).env.VITE_APP_MODE || 'full'
-    );
+    // Page split:
+    //   /ktv -> KTV mode (卡拉OK + 點歌)
+    //   /    -> Studio mode (音樂來源 + 變調器 + 分離器 + 採譜)
+    const APP_MODE: 'main' | 'karaoke' = window.location.pathname.startsWith('/ktv')
+        ? 'karaoke'
+        : 'main';
 
     // User / Login (KTV mode only)
-    // urlParams already declared above
+    const urlParams = new URLSearchParams(window.location.search);
     const currentUser = urlParams.get('user');
     const [showLogin, setShowLogin] = useState(() => {
         return APP_MODE === 'karaoke' && !currentUser;
@@ -62,7 +58,7 @@ export default function App() {
         if (APP_MODE === 'karaoke') {
             return ['karaoke', 'request'].includes(tab.key);
         }
-        return true; // full
+        return false;
     });
 
     // Check if initial tab is valid for current mode
