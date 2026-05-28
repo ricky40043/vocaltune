@@ -287,7 +287,7 @@ class DownloadResponse(BaseModel):
 
 class SeparateRequest(BaseModel):
     file_path: str  # Path to audio file (can be job_id or filename)
-    stems: Optional[str] = "6"  # "2", "4", "6"
+    stems: Optional[str] = "6"  # "4", "6"
 
 class JobStatusResponse(BaseModel):
     job_id: str
@@ -694,8 +694,8 @@ async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
             "message": "正在啟動 AI 分離引擎..."
         })
         
-        # 決定 Demucs 模型：2軌與4軌使用 htdemucs，6軌使用 htdemucs_6s
-        model_name = "htdemucs" if stems in ["2", "4"] else "htdemucs_6s"
+        # 決定 Demucs 模型：4軌使用 htdemucs，6軌使用 htdemucs_6s
+        model_name = "htdemucs" if stems == "4" else "htdemucs_6s"
         
         # Run Demucs
         # Using -u to force unbuffered binary stdout/stderr
@@ -757,7 +757,7 @@ async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
                                 })
                         except:
                             pass
-
+ 
         # Wait for both streams and the process
         await asyncio.gather(
             read_stream(process.stdout),
@@ -792,41 +792,7 @@ async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
         # Collect track URLs based on stems option
         tracks = {}
         
-        if stems == "2":
-            # 2軌模式：人聲 (vocals) 與 伴奏 (accompaniment)
-            vocals_wav = stems_dir / "vocals.wav"
-            stems_to_mix = ["drums", "bass", "other"]
-            
-            # 使用 ffmpeg 將其餘樂器軌混合為伴奏
-            inputs = []
-            filter_complex = ""
-            idx = 0
-            for s in stems_to_mix:
-                p = stems_dir / f"{s}.wav"
-                if p.exists():
-                    inputs.extend(["-i", str(p)])
-                    filter_complex += f"[{idx}:a]"
-                    idx += 1
-            
-            acc_wav = output_dir / "accompaniment.wav"
-            
-            if idx > 0:
-                filter_complex += f"amix=inputs={idx}:duration=longest:normalize=0[out]"
-                cmd_mix = ["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", str(acc_wav)]
-                proc_mix = await asyncio.create_subprocess_exec(
-                     *cmd_mix, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-                await proc_mix.communicate()
-            
-            # 複製與登記音軌
-            if vocals_wav.exists():
-                shutil.copy(vocals_wav, output_dir / "vocals.wav")
-                tracks["vocals"] = f"/files/separated/{job_id}/vocals.wav"
-            
-            if acc_wav.exists():
-                tracks["accompaniment"] = f"/files/separated/{job_id}/accompaniment.wav"
-                
-        elif stems == "4":
+        if stems == "4":
             # 4軌模式：人聲、鼓組、Bass、其他
             track_names = ["vocals", "drums", "bass", "other"]
             for track_name in track_names:
