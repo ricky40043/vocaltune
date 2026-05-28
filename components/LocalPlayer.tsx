@@ -244,8 +244,12 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         // Unwrap Tone.Buffer (Reverting to v1 logic: 988cd6a)
         // Unwrap Tone.Buffer (Reverting to v1 logic: 988cd6a)
         // const toneBuffer = new Tone.Buffer(audioBuffer); 
-        const newPlayer = new Tone.GrainPlayer(audioBuffer).toDestination();
-        newPlayer.loop = false;
+        const newPlayer = new Tone.GrainPlayer({
+          url: audioBuffer,
+          grainSize: 0.1,  // 優化顆粒大小，減少金屬碎裂感
+          overlap: 0.05,   // 提供平滑過渡
+          loop: false
+        }).toDestination();
 
         // Connect nodes
         if (eqRef.current) {
@@ -326,7 +330,6 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     setPointA(null);
     setPointB(null);
     setIsRepeatActive(false);
-    setOriginalBpm(120);
 
     const p = playerRef.current;
     if (p) {
@@ -511,7 +514,11 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
       // Render Offline
       const renderedBuffer = await Tone.Offline(async () => {
-        const offlinePlayer = new Tone.GrainPlayer(buffer);
+        const offlinePlayer = new Tone.GrainPlayer({
+          url: buffer,
+          grainSize: 0.1,
+          overlap: 0.05
+        });
         offlinePlayer.playbackRate = playbackRate;
         offlinePlayer.detune = detune;
         offlinePlayer.volume.value = volume; // Optional: apply volume or normalized? usually normalized is better, but user might want quiet. Let's keep 0dB usually, but apply user volume.
