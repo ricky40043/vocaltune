@@ -55,6 +55,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
     const [remainingTimeText, setRemainingTimeText] = useState<string>('');
 
     // Track state
+    const [stems, setStems] = useState<'2' | '4' | '6'>('6');
     const [tracks, setTracks] = useState<Record<string, TrackState>>({});
     const [soloedTrack, setSoloedTrack] = useState<string | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -149,7 +150,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
             const response = await fetch(`${API_BASE_URL}/api/separate-local`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ file_path: filePathToSend }),
+                body: JSON.stringify({ file_path: filePathToSend, stems: stems }),
             });
 
             if (!response.ok) {
@@ -579,12 +580,41 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                             </p>
                         </div>
                         {effectiveFileUrl && (
-                            <button
-                                onClick={(e) => { e.stopPropagation(); handleStartSeparation(); }}
-                                className="mt-4 py-2 px-8 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 font-bold text-white shadow-lg hover:scale-105 transition-transform"
-                            >
-                                開始分離
-                            </button>
+                            <div className="mt-5 w-full max-w-sm mx-auto space-y-4">
+                                <div className="space-y-2 text-left">
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block text-center">音軌分離模式</label>
+                                    <div className="grid grid-cols-3 gap-1.5 bg-gray-900/80 p-1 rounded-xl border border-gray-700/50">
+                                        {(['2', '4', '6'] as const).map((mode) => (
+                                            <button
+                                                key={mode}
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); setStems(mode); }}
+                                                className={`py-2 px-1 text-xs font-bold rounded-lg transition-all ${
+                                                    stems === mode
+                                                        ? 'bg-purple-600 text-white shadow-md'
+                                                        : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                                                }`}
+                                            >
+                                                {mode === '2' && '2 軌 (極速)'}
+                                                {mode === '4' && '4 軌 (標準)'}
+                                                {mode === '6' && '6 軌 (精細)'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-[10px] text-gray-500 text-center mt-1.5 leading-relaxed">
+                                        {stems === '2' && '⚡ 僅分離「人聲」與「伴奏」，適合練習與快歌需求，速度最快。'}
+                                        {stems === '4' && '🥁 分離為「人聲、鼓組、Bass、其他」，適合基礎樂器抓譜。'}
+                                        {stems === '6' && '🎹 完整分離「人聲、鼓組、Bass、吉他、鋼琴、其他」，細節最精緻。'}
+                                    </p>
+                                </div>
+
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleStartSeparation(); }}
+                                    className="w-full py-3 px-8 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 font-bold text-white shadow-lg hover:scale-[1.02] active:scale-95 transition-all"
+                                >
+                                    開始分離 ({stems} 音軌)
+                                </button>
+                            </div>
                         )}
                     </div>
                 </div>

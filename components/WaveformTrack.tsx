@@ -30,6 +30,7 @@ const TRACK_COLORS: Record<string, { bg: string; wave: string; label: string }> 
     piano: { bg: '#6366f1', wave: '#818cf8', label: '鋼琴' },       // Indigo
     other: { bg: '#06b6d4', wave: '#22d3ee', label: '其他' },       // Cyan
     music: { bg: '#22c55e', wave: '#4ade80', label: '音樂' },       // Green
+    accompaniment: { bg: '#06b6d4', wave: '#22d3ee', label: '伴奏' },  // Cyan
 };
 
 export const WaveformTrack: React.FC<WaveformTrackProps> = ({

@@ -287,6 +287,7 @@ class DownloadResponse(BaseModel):
 
 class SeparateRequest(BaseModel):
     file_path: str  # Path to audio file (can be job_id or filename)
+    stems: Optional[str] = "6"  # "2", "4", "6"
 
 class JobStatusResponse(BaseModel):
     job_id: str
@@ -674,7 +675,7 @@ async def download_youtube_audio(job_id: str, youtube_url: str):
             "error": str(e)
         })
 
-async def separate_audio_local(job_id: str, audio_path: str):
+async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
     """背景任務：使用 Demucs 分離音軌"""
     try:
         update_job_status(job_id, {
@@ -693,13 +694,16 @@ async def separate_audio_local(job_id: str, audio_path: str):
             "message": "正在啟動 AI 分離引擎..."
         })
         
-        # Run Demucs (htdemucs_6s model for 6-stem separation)
+        # 決定 Demucs 模型：2軌與4軌使用 htdemucs，6軌使用 htdemucs_6s
+        model_name = "htdemucs" if stems in ["2", "4"] else "htdemucs_6s"
+        
+        # Run Demucs
         # Using -u to force unbuffered binary stdout/stderr
         demucs_device = get_demucs_device()
-        print(f"[Backend] Starting Demucs command for job {job_id} on {demucs_device}...")
+        print(f"[Backend] Starting Demucs command for job {job_id} on {demucs_device} with {stems} stems ({model_name})...")
         cmd = [
             demucs_python(), "-u", "-m", "demucs",
-            "-n", "htdemucs_6s",  # 6-stem model
+            "-n", model_name,
             "-d", demucs_device,
             "-o", str(output_dir),
             str(audio_path)
@@ -775,7 +779,7 @@ async def separate_audio_local(job_id: str, audio_path: str):
         
         # Find separated files
         audio_name = Path(audio_path).stem
-        stems_dir = output_dir / "htdemucs_6s" / audio_name
+        stems_dir = output_dir / model_name / audio_name
         
         if not stems_dir.exists():
             # Try finding in alternative paths
@@ -785,17 +789,62 @@ async def separate_audio_local(job_id: str, audio_path: str):
             else:
                 raise Exception(f"找不到分離後的檔案")
         
-        # Collect track URLs (6-stem model)
+        # Collect track URLs based on stems option
         tracks = {}
-        track_names = ["vocals", "drums", "bass", "guitar", "piano", "other"]
         
-        for track_name in track_names:
-            track_file = stems_dir / f"{track_name}.wav"
-            if track_file.exists():
-                # Copy to accessible location
-                dest_path = output_dir / f"{track_name}.wav"
-                shutil.copy(track_file, dest_path)
-                tracks[track_name] = f"/files/separated/{job_id}/{track_name}.wav"
+        if stems == "2":
+            # 2軌模式：人聲 (vocals) 與 伴奏 (accompaniment)
+            vocals_wav = stems_dir / "vocals.wav"
+            stems_to_mix = ["drums", "bass", "other"]
+            
+            # 使用 ffmpeg 將其餘樂器軌混合為伴奏
+            inputs = []
+            filter_complex = ""
+            idx = 0
+            for s in stems_to_mix:
+                p = stems_dir / f"{s}.wav"
+                if p.exists():
+                    inputs.extend(["-i", str(p)])
+                    filter_complex += f"[{idx}:a]"
+                    idx += 1
+            
+            acc_wav = output_dir / "accompaniment.wav"
+            
+            if idx > 0:
+                filter_complex += f"amix=inputs={idx}:duration=longest:normalize=0[out]"
+                cmd_mix = ["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", str(acc_wav)]
+                proc_mix = await asyncio.create_subprocess_exec(
+                     *cmd_mix, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                await proc_mix.communicate()
+            
+            # 複製與登記音軌
+            if vocals_wav.exists():
+                shutil.copy(vocals_wav, output_dir / "vocals.wav")
+                tracks["vocals"] = f"/files/separated/{job_id}/vocals.wav"
+            
+            if acc_wav.exists():
+                tracks["accompaniment"] = f"/files/separated/{job_id}/accompaniment.wav"
+                
+        elif stems == "4":
+            # 4軌模式：人聲、鼓組、Bass、其他
+            track_names = ["vocals", "drums", "bass", "other"]
+            for track_name in track_names:
+                track_file = stems_dir / f"{track_name}.wav"
+                if track_file.exists():
+                    dest_path = output_dir / f"{track_name}.wav"
+                    shutil.copy(track_file, dest_path)
+                    tracks[track_name] = f"/files/separated/{job_id}/{track_name}.wav"
+                    
+        else:
+            # 6軌模式：人聲、鼓組、Bass、吉他、鋼琴、其他
+            track_names = ["vocals", "drums", "bass", "guitar", "piano", "other"]
+            for track_name in track_names:
+                track_file = stems_dir / f"{track_name}.wav"
+                if track_file.exists():
+                    dest_path = output_dir / f"{track_name}.wav"
+                    shutil.copy(track_file, dest_path)
+                    tracks[track_name] = f"/files/separated/{job_id}/{track_name}.wav"
         
         if not tracks:
             raise Exception("分離完成但找不到任何音軌")
@@ -919,7 +968,7 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
     })
     
     # Start background separation
-    background_tasks.add_task(separate_audio_local, job_id, str(audio_path))
+    background_tasks.add_task(separate_audio_local, job_id, str(audio_path), request.stems)
     
     return DownloadResponse(
         job_id=job_id,
