@@ -12,6 +12,87 @@ const formatTime = (seconds: number) => {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 };
 
+// 客製化專業級垂直混音推桿 (Custom Studio Vertical Fader)
+interface FaderTrackProps {
+  value: number;
+  min: number;
+  max: number;
+  onChange: (val: number) => void;
+  accentColor: string;
+  glowColor: string;
+}
+
+const FaderTrack: React.FC<FaderTrackProps> = ({ value, min, max, onChange, accentColor, glowColor }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    updateValue(e.clientY);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging) return;
+    updateValue(e.clientY);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    setIsDragging(false);
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch (err) {}
+  };
+
+  const updateValue = (clientY: number) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const height = rect.height;
+    const y = clientY - rect.top; // 0 (top) to height (bottom)
+    const percentage = 1 - Math.max(0, Math.min(1, y / height)); // 1(max) to 0(min)
+    const val = Math.round(min + percentage * (max - min));
+    onChange(val);
+  };
+
+  const percent = ((value - min) / (max - min)) * 100;
+
+  return (
+    <div 
+      ref={containerRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      className="relative w-12 h-28 flex items-center justify-center cursor-ns-resize touch-none select-none my-4"
+    >
+      {/* 垂直背景槽 */}
+      <div className="w-1.5 h-full bg-gray-950 rounded-full relative">
+        {/* 發光填充色（從底部到滑動位置） */}
+        <div 
+          className="absolute bottom-0 left-0 right-0 rounded-full transition-all duration-75"
+          style={{
+            height: `${percent}%`,
+            backgroundColor: accentColor,
+            boxShadow: `0 0 10px ${glowColor}`
+          }}
+        />
+      </div>
+      
+      {/* 金屬質感實體音量推子 (Fader Handle) */}
+      <div 
+        className="absolute w-8 h-4 bg-gradient-to-b from-gray-200 via-gray-100 to-gray-400 rounded border border-gray-600 shadow-[0_3px_6px_rgba(0,0,0,0.6)] flex flex-col justify-between p-0.5 select-none pointer-events-none transition-all duration-75"
+        style={{
+          bottom: `calc(${percent}% - 8px)`,
+          boxShadow: `0 3px 6px rgba(0,0,0,0.6), 0 0 8px ${glowColor}60`
+        }}
+      >
+        {/* 經典音量推子紅線 */}
+        <div className="w-full h-[2px] bg-red-500 rounded my-auto" />
+      </div>
+    </div>
+  );
+};
+
 // Utility to convert AudioBuffer to WAV for download
 function bufferToWave(abuffer: AudioBuffer, len: number) {
   let numOfChan = abuffer.numberOfChannels,
@@ -879,16 +960,17 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
                 <div className="absolute top-2 text-[10px] font-mono font-bold transition-colors duration-300" style={{ color: lowGain !== 0 ? '#c084fc' : '#9ca3af' }}>
                   {lowGain > 0 ? '+' : ''}{lowGain}dB
                 </div>
-                <input 
-                  type="range" 
-                  min={-12} 
-                  max={12} 
-                  step={1} 
-                  value={lowGain} 
-                  onChange={e => setLowGain(Number(e.target.value))} 
-                  className="h-24 w-1.5 appearance-none bg-gray-600 rounded-full cursor-pointer accent-purple-500 mt-4 transition-all duration-200" 
-                  style={{ writingMode: 'vertical-lr', WebkitAppearance: 'slider-vertical' }} 
+                
+                {/* 客製化專業級垂直混音推桿 */}
+                <FaderTrack
+                  value={lowGain}
+                  min={-12}
+                  max={12}
+                  onChange={setLowGain}
+                  accentColor="#a855f7"
+                  glowColor="rgba(168, 85, 247, 0.6)"
                 />
+                
                 <span className="text-xs font-bold mt-2 text-purple-300 transition-opacity" style={{ opacity: lowGain !== 0 ? 1 : 0.7 }}>Bass</span>
               </div>
               
@@ -913,16 +995,17 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
                 <div className="absolute top-2 text-[10px] font-mono font-bold transition-colors duration-300" style={{ color: midGain !== 0 ? '#60a5fa' : '#9ca3af' }}>
                   {midGain > 0 ? '+' : ''}{midGain}dB
                 </div>
-                <input 
-                  type="range" 
-                  min={-12} 
-                  max={12} 
-                  step={1} 
-                  value={midGain} 
-                  onChange={e => setMidGain(Number(e.target.value))} 
-                  className="h-24 w-1.5 appearance-none bg-gray-600 rounded-full cursor-pointer accent-blue-500 mt-4 transition-all duration-200" 
-                  style={{ writingMode: 'vertical-lr', WebkitAppearance: 'slider-vertical' }} 
+                
+                {/* 客製化專業級垂直混音推桿 */}
+                <FaderTrack
+                  value={midGain}
+                  min={-12}
+                  max={12}
+                  onChange={setMidGain}
+                  accentColor="#3b82f6"
+                  glowColor="rgba(59, 130, 246, 0.6)"
                 />
+                
                 <span className="text-xs font-bold mt-2 text-blue-300 transition-opacity" style={{ opacity: midGain !== 0 ? 1 : 0.7 }}>Vocal</span>
               </div>
               
@@ -947,16 +1030,17 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
                 <div className="absolute top-2 text-[10px] font-mono font-bold transition-colors duration-300" style={{ color: highGain !== 0 ? '#f472b6' : '#9ca3af' }}>
                   {highGain > 0 ? '+' : ''}{highGain}dB
                 </div>
-                <input 
-                  type="range" 
-                  min={-12} 
-                  max={12} 
-                  step={1} 
-                  value={highGain} 
-                  onChange={e => setHighGain(Number(e.target.value))} 
-                  className="h-24 w-1.5 appearance-none bg-gray-600 rounded-full cursor-pointer accent-pink-500 mt-4 transition-all duration-200" 
-                  style={{ writingMode: 'vertical-lr', WebkitAppearance: 'slider-vertical' }} 
+                
+                {/* 客製化專業級垂直混音推桿 */}
+                <FaderTrack
+                  value={highGain}
+                  min={-12}
+                  max={12}
+                  onChange={setHighGain}
+                  accentColor="#ec4899"
+                  glowColor="rgba(236, 72, 153, 0.6)"
                 />
+                
                 <span className="text-xs font-bold mt-2 text-pink-300 transition-opacity" style={{ opacity: highGain !== 0 ? 1 : 0.7 }}>High</span>
               </div>
             </div>
