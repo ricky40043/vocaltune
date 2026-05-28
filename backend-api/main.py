@@ -29,6 +29,7 @@ SEPARATED_DIR.mkdir(exist_ok=True)
 
 from job_store import job_status_store, update_job_status, get_job_status
 from karaoke import process_karaoke_job, KARAOKE_DIR
+from ai_device import demucs_python, get_demucs_device
 from utils.youtube_search import search_youtube
 
 # Queue Persistence (supports per-user queues)
@@ -680,11 +681,12 @@ async def separate_audio_local(job_id: str, audio_path: str):
         
         # Run Demucs (htdemucs_6s model for 6-stem separation)
         # Using -u to force unbuffered binary stdout/stderr
-        print(f"[Backend] Starting Demucs command for job {job_id}...")
+        demucs_device = get_demucs_device()
+        print(f"[Backend] Starting Demucs command for job {job_id} on {demucs_device}...")
         cmd = [
-            "python", "-u", "-m", "demucs",
+            demucs_python(), "-u", "-m", "demucs",
             "-n", "htdemucs_6s",  # 6-stem model
-            "-d", "cpu",          # Use CPU
+            "-d", demucs_device,
             "-o", str(output_dir),
             str(audio_path)
         ]

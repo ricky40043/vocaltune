@@ -19,6 +19,7 @@ from datetime import datetime
 
 # Shared job updater callback
 from job_store import update_job_status, job_status_store
+from ai_device import demucs_python, get_demucs_device
 
 async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: str = None):
     """
@@ -170,16 +171,17 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
              raise Exception("音訊擷取失敗")
 
         # 3. Runs Demucs to separate
-        update_job_status(job_id, {"status": "separating", "progress": 40, "message": "AI 去人聲運算中 (這需要一點時間)..."})
+        demucs_device = get_demucs_device()
+        update_job_status(job_id, {"status": "separating", "progress": 40, "message": f"AI 去人聲運算中 ({demucs_device})..."})
         
         # Use simpler model for speed? or same htdemucs_6s?
         # User wants quality. htdemucs_6s is good.
         # Demucs Output: work_dir / htdemucs_6s / source_audio / {vocals.wav, ...}
         
         cmd_demucs = [
-            "python", "-u", "-m", "demucs",
+            demucs_python(), "-u", "-m", "demucs",
             "-n", "htdemucs_6s",
-            "-d", "cpu",
+            "-d", demucs_device,
             "--out", str(work_dir),
             str(extracted_audio)
         ]

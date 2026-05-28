@@ -8,6 +8,15 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0',
+      watch: {
+        ignored: [
+          '**/backend-api/venv*/**',
+          '**/backend-api/downloads/**',
+          '**/backend-api/separated/**',
+          '**/backend-api/karaoke_output/**',
+          '**/backend-api/debug.log',
+        ],
+      },
       proxy: {
         '/api': {
           target: 'http://127.0.0.1:8050',
