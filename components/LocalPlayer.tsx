@@ -102,17 +102,14 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
   const savedTimeRef = useRef(0);
 
-  // Isolation: Handle Tab Switching — unsync from Transport when tab is hidden
+  // Isolation: Handle Tab Switching — keep playing in background, do not unsync or reset seconds
   useEffect(() => {
     const p = playerRef.current;
     if (!p) return;
-    if (!isActive) {
-      p.unsync();
-      setIsPlaying(false);
-    } else {
-      // Re-sync when coming back to pitcher tab
-      p.sync().start(0);
-      Tone.Transport.seconds = 0;
+    // 當切換回變調器分頁時，強制同步播放狀態與進度時間，確保 UI 按鈕與實際播放狀態完美對應
+    if (isActive) {
+      setIsPlaying(Tone.Transport.state === 'started');
+      setCurrentTime(Tone.Transport.seconds);
     }
   }, [isActive]);
 
@@ -257,11 +254,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         }
 
         Tone.Transport.seconds = 0;
-        if (isActive) {
-          newPlayer.sync().start(0);
-        } else {
-          newPlayer.unsync();
-        }
+        newPlayer.sync().start(0);
 
         console.log(`[LocalPlayer] Loaded remote URL: ${audioFileUrl}`);
 
@@ -448,10 +441,16 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     if (!p) return;
     p.playbackRate = playbackRate;
     p.detune = detune;
-    p.volume.value = volume;
+    
+    // 隔離保護：如果當前不是變調器分頁 (isActive === false)，則強制靜音，防止與分離器聲音重疊；否則恢復使用者音量
+    if (!isActive) {
+      p.volume.value = -Infinity;
+    } else {
+      p.volume.value = volume;
+    }
   };
 
-  useEffect(() => { updatePlayerSettings(); }, [playbackRate, detune, volume]);
+  useEffect(() => { updatePlayerSettings(); }, [playbackRate, detune, volume, isActive]);
 
   const toggleMic = async () => {
     if (!micRef.current) return;

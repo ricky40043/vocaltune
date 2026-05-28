@@ -34,13 +34,10 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
     useEffect(() => {
         if (!isActive) {
             setIsPlaying(false);
-            if (playersRef.current) {
-                Object.values(playersRef.current).forEach(p => p.unsync());
-            }
         } else {
-            if (playersRef.current) {
-                Object.values(playersRef.current).forEach(p => p.sync().start(0));
-            }
+            // 當切換回分離器分頁時，強制同步播放狀態與進度時間，確保 UI 按鈕與實際播放狀態完美對應
+            setIsPlaying(Tone.Transport.state === 'started');
+            setCurrentTime(Tone.Transport.seconds);
         }
     }, [isActive]);
     // Job state
@@ -266,11 +263,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
             const onAllLoaded = () => {
                 // Sync all players to Transport
                 Object.keys(playerMap).forEach(name => {
-                    if (isActive) {
-                        playerMap[name].sync().start(0);
-                    } else {
-                        playerMap[name].unsync();
-                    }
+                    playerMap[name].sync().start(0);
                 });
 
                 // Set duration from vocals or first track
@@ -327,7 +320,8 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
         Object.entries(tracks).forEach(([name, track]: [string, TrackState]) => {
             const vol = volMap[name];
             if (!vol) return;
-            const shouldMute = track.muted || (soloedTrack !== null && name !== soloedTrack);
+            // 隔離保護：如果當前不是分離器分頁 (isActive === false)，則強制靜音所有音軌，防止與變調器聲音重疊
+            const shouldMute = !isActive || track.muted || (soloedTrack !== null && name !== soloedTrack);
             if (shouldMute) {
                 vol.mute = true;
             } else {
@@ -335,7 +329,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                 vol.volume.value = Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
             }
         });
-    }, [tracks, soloedTrack]);
+    }, [tracks, soloedTrack, isActive]);
 
     // Sync play/pause
     const togglePlay = async () => {
