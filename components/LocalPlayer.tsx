@@ -118,6 +118,12 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   const [midGain, setMidGain] = useState(0);
   const [highGain, setHighGain] = useState(0);
 
+  const handleResetEQ = () => {
+    setLowGain(0);
+    setMidGain(0);
+    setHighGain(0);
+  };
+
   const [micEnabled, setMicEnabled] = useState(false);
   const [micVolume, setMicVolume] = useState(0);
   const [reverbAmount, setReverbAmount] = useState(0.3);
@@ -831,22 +837,262 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
           </div>
 
           <div className="bg-brand-800/40 border border-gray-700 rounded-2xl p-4 md:p-5">
-            <div className="flex items-center gap-2 text-brand-glow mb-4"><Layers size={18} /><span className="font-bold text-sm">分軌模擬 (EQ Isolation)</span></div>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="bg-gray-800/50 rounded-xl p-2 pt-4 flex flex-col items-center border border-gray-700/50 relative">
-                <div className="absolute top-2 text-[10px] font-mono text-purple-300 font-bold">{lowGain > 0 ? '+' : ''}{lowGain}dB</div>
-                <input type="range" min={-12} max={12} step={1} value={lowGain} onChange={e => setLowGain(Number(e.target.value))} className="h-24 w-1.5 appearance-none bg-gray-600 rounded-full cursor-pointer accent-purple-500 mt-4" style={{ writingMode: 'vertical-lr', WebkitAppearance: 'slider-vertical' }} />
-                <span className="text-xs font-bold mt-2 text-purple-300">Bass</span>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2 text-brand-glow">
+                <Layers size={18} />
+                <span className="font-bold text-sm">分軌模擬 (EQ Isolation)</span>
               </div>
-              <div className="bg-gray-800/50 rounded-xl p-2 pt-4 flex flex-col items-center border border-gray-700/50 relative">
-                <div className="absolute top-2 text-[10px] font-mono text-blue-300 font-bold">{midGain > 0 ? '+' : ''}{midGain}dB</div>
-                <input type="range" min={-12} max={12} step={1} value={midGain} onChange={e => setMidGain(Number(e.target.value))} className="h-24 w-1.5 appearance-none bg-gray-600 rounded-full cursor-pointer accent-blue-500 mt-4" style={{ writingMode: 'vertical-lr', WebkitAppearance: 'slider-vertical' }} />
-                <span className="text-xs font-bold mt-2 text-blue-300">Vocal</span>
+              {/* 一鍵重置 EQ 按鈕 */}
+              <button
+                onClick={handleResetEQ}
+                disabled={lowGain === 0 && midGain === 0 && highGain === 0}
+                className={`text-[11px] px-2 py-1 rounded-lg border flex items-center gap-1 transition-all active:scale-95 font-medium select-none ${
+                  lowGain === 0 && midGain === 0 && highGain === 0
+                    ? 'border-gray-800/40 text-gray-600 bg-transparent cursor-not-allowed'
+                    : 'border-brand-accent/30 text-brand-accent hover:bg-brand-accent/10 hover:border-brand-accent bg-brand-accent/5'
+                }`}
+              >
+                <RotateCcw size={10} /> 重置 EQ
+              </button>
+            </div>
+            
+            {/* 桌機版樣式 (hidden md:grid): 傳統垂直調音台，精緻美觀，霓虹發光系統 */}
+            <div className="hidden md:grid md:grid-cols-3 md:gap-4">
+              {/* Bass 垂直滑桿 */}
+              <div 
+                className="bg-gray-800/50 rounded-xl p-2 pt-4 flex flex-col items-center border transition-all duration-300 relative"
+                style={{
+                  borderColor: lowGain !== 0 ? 'rgba(168, 85, 247, 0.4)' : 'rgba(55, 65, 81, 0.5)',
+                  boxShadow: lowGain !== 0 ? '0 0 15px rgba(168, 85, 247, 0.15)' : 'none',
+                  backgroundColor: lowGain !== 0 ? 'rgba(168, 85, 247, 0.03)' : 'rgba(31, 41, 55, 0.2)'
+                }}
+              >
+                {/* 刻度背景線點綴 */}
+                <div className="absolute left-6 top-10 bottom-12 w-[1px] bg-gray-700/30 flex flex-col justify-between text-[7px] text-gray-500 font-mono pointer-events-none select-none">
+                  <span>+12</span>
+                  <span>+6</span>
+                  <span> 0</span>
+                  <span>-6</span>
+                  <span>-12</span>
+                </div>
+
+                <div className="absolute top-2 text-[10px] font-mono font-bold transition-colors duration-300" style={{ color: lowGain !== 0 ? '#c084fc' : '#9ca3af' }}>
+                  {lowGain > 0 ? '+' : ''}{lowGain}dB
+                </div>
+                <input 
+                  type="range" 
+                  min={-12} 
+                  max={12} 
+                  step={1} 
+                  value={lowGain} 
+                  onChange={e => setLowGain(Number(e.target.value))} 
+                  className="h-24 w-1.5 appearance-none bg-gray-600 rounded-full cursor-pointer accent-purple-500 mt-4 transition-all duration-200" 
+                  style={{ writingMode: 'vertical-lr', WebkitAppearance: 'slider-vertical' }} 
+                />
+                <span className="text-xs font-bold mt-2 text-purple-300 transition-opacity" style={{ opacity: lowGain !== 0 ? 1 : 0.7 }}>Bass</span>
               </div>
-              <div className="bg-gray-800/50 rounded-xl p-2 pt-4 flex flex-col items-center border border-gray-700/50 relative">
-                <div className="absolute top-2 text-[10px] font-mono text-pink-300 font-bold">{highGain > 0 ? '+' : ''}{highGain}dB</div>
-                <input type="range" min={-12} max={12} step={1} value={highGain} onChange={e => setHighGain(Number(e.target.value))} className="h-24 w-1.5 appearance-none bg-gray-600 rounded-full cursor-pointer accent-pink-500 mt-4" style={{ writingMode: 'vertical-lr', WebkitAppearance: 'slider-vertical' }} />
-                <span className="text-xs font-bold mt-2 text-pink-300">High</span>
+              
+              {/* Vocal 垂直滑桿 */}
+              <div 
+                className="bg-gray-800/50 rounded-xl p-2 pt-4 flex flex-col items-center border transition-all duration-300 relative"
+                style={{
+                  borderColor: midGain !== 0 ? 'rgba(59, 130, 246, 0.4)' : 'rgba(55, 65, 81, 0.5)',
+                  boxShadow: midGain !== 0 ? '0 0 15px rgba(59, 130, 246, 0.15)' : 'none',
+                  backgroundColor: midGain !== 0 ? 'rgba(59, 130, 246, 0.03)' : 'rgba(31, 41, 55, 0.2)'
+                }}
+              >
+                {/* 刻度背景線點綴 */}
+                <div className="absolute left-6 top-10 bottom-12 w-[1px] bg-gray-700/30 flex flex-col justify-between text-[7px] text-gray-500 font-mono pointer-events-none select-none">
+                  <span>+12</span>
+                  <span>+6</span>
+                  <span> 0</span>
+                  <span>-6</span>
+                  <span>-12</span>
+                </div>
+
+                <div className="absolute top-2 text-[10px] font-mono font-bold transition-colors duration-300" style={{ color: midGain !== 0 ? '#60a5fa' : '#9ca3af' }}>
+                  {midGain > 0 ? '+' : ''}{midGain}dB
+                </div>
+                <input 
+                  type="range" 
+                  min={-12} 
+                  max={12} 
+                  step={1} 
+                  value={midGain} 
+                  onChange={e => setMidGain(Number(e.target.value))} 
+                  className="h-24 w-1.5 appearance-none bg-gray-600 rounded-full cursor-pointer accent-blue-500 mt-4 transition-all duration-200" 
+                  style={{ writingMode: 'vertical-lr', WebkitAppearance: 'slider-vertical' }} 
+                />
+                <span className="text-xs font-bold mt-2 text-blue-300 transition-opacity" style={{ opacity: midGain !== 0 ? 1 : 0.7 }}>Vocal</span>
+              </div>
+              
+              {/* High 垂直滑桿 */}
+              <div 
+                className="bg-gray-800/50 rounded-xl p-2 pt-4 flex flex-col items-center border transition-all duration-300 relative"
+                style={{
+                  borderColor: highGain !== 0 ? 'rgba(236, 72, 153, 0.4)' : 'rgba(55, 65, 81, 0.5)',
+                  boxShadow: highGain !== 0 ? '0 0 15px rgba(236, 72, 153, 0.15)' : 'none',
+                  backgroundColor: highGain !== 0 ? 'rgba(236, 72, 153, 0.03)' : 'rgba(31, 41, 55, 0.2)'
+                }}
+              >
+                {/* 刻度背景線點綴 */}
+                <div className="absolute left-6 top-10 bottom-12 w-[1px] bg-gray-700/30 flex flex-col justify-between text-[7px] text-gray-500 font-mono pointer-events-none select-none">
+                  <span>+12</span>
+                  <span>+6</span>
+                  <span> 0</span>
+                  <span>-6</span>
+                  <span>-12</span>
+                </div>
+
+                <div className="absolute top-2 text-[10px] font-mono font-bold transition-colors duration-300" style={{ color: highGain !== 0 ? '#f472b6' : '#9ca3af' }}>
+                  {highGain > 0 ? '+' : ''}{highGain}dB
+                </div>
+                <input 
+                  type="range" 
+                  min={-12} 
+                  max={12} 
+                  step={1} 
+                  value={highGain} 
+                  onChange={e => setHighGain(Number(e.target.value))} 
+                  className="h-24 w-1.5 appearance-none bg-gray-600 rounded-full cursor-pointer accent-pink-500 mt-4 transition-all duration-200" 
+                  style={{ writingMode: 'vertical-lr', WebkitAppearance: 'slider-vertical' }} 
+                />
+                <span className="text-xs font-bold mt-2 text-pink-300 transition-opacity" style={{ opacity: highGain !== 0 ? 1 : 0.7 }}>High</span>
+              </div>
+            </div>
+
+            {/* 手機版樣式 (md:hidden): 水平滑桿列表 + 左右點擊微調 + touch-action + 滾動安全區，完全解決滾動卡死 */}
+            <div className="md:hidden space-y-3">
+              {/* Bass 水平 */}
+              <div 
+                className="rounded-xl p-3 border transition-all duration-300 flex flex-col gap-2"
+                style={{
+                  borderColor: lowGain !== 0 ? 'rgba(168, 85, 247, 0.4)' : 'rgba(55, 65, 81, 0.4)',
+                  boxShadow: lowGain !== 0 ? '0 0 12px rgba(168, 85, 247, 0.12)' : 'none',
+                  backgroundColor: lowGain !== 0 ? 'rgba(168, 85, 247, 0.02)' : 'rgba(17, 24, 39, 0.1)'
+                }}
+              >
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-xs font-bold text-purple-300">Bass</span>
+                  <span className="text-xs font-mono font-bold" style={{ color: lowGain !== 0 ? '#c084fc' : '#6b7280' }}>
+                    {lowGain > 0 ? '+' : ''}{lowGain}dB
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {/* 減小按鈕 */}
+                  <button
+                    onClick={() => setLowGain(g => Math.max(-12, g - 1))}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800/80 hover:bg-gray-700 active:scale-90 text-purple-300 border border-purple-500/20 active:bg-purple-950/40 transition-all shrink-0 select-none shadow-[0_0_8px_rgba(168,85,247,0.08)]"
+                  >
+                    <Minus size={12} />
+                  </button>
+                  {/* 滑桿本體 (縮小寬度，加上 touch-action: pan-y，不影響網頁垂直滑動) */}
+                  <input 
+                    type="range" 
+                    min={-12} 
+                    max={12} 
+                    step={1} 
+                    value={lowGain} 
+                    onChange={e => setLowGain(Number(e.target.value))} 
+                    className="flex-1 h-2 bg-gray-800 rounded-full appearance-none cursor-pointer accent-purple-500" 
+                    style={{ touchAction: 'pan-y' }}
+                  />
+                  {/* 增大按鈕 */}
+                  <button
+                    onClick={() => setLowGain(g => Math.min(12, g + 1))}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800/80 hover:bg-gray-700 active:scale-90 text-purple-300 border border-purple-500/20 active:bg-purple-950/40 transition-all shrink-0 select-none shadow-[0_0_8px_rgba(168,85,247,0.08)]"
+                  >
+                    <Plus size={12} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Vocal 水平 */}
+              <div 
+                className="rounded-xl p-3 border transition-all duration-300 flex flex-col gap-2"
+                style={{
+                  borderColor: midGain !== 0 ? 'rgba(59, 130, 246, 0.4)' : 'rgba(55, 65, 81, 0.4)',
+                  boxShadow: midGain !== 0 ? '0 0 12px rgba(59, 130, 246, 0.12)' : 'none',
+                  backgroundColor: midGain !== 0 ? 'rgba(59, 130, 246, 0.02)' : 'rgba(17, 24, 39, 0.1)'
+                }}
+              >
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-xs font-bold text-blue-300">Vocal</span>
+                  <span className="text-xs font-mono font-bold" style={{ color: midGain !== 0 ? '#60a5fa' : '#6b7280' }}>
+                    {midGain > 0 ? '+' : ''}{midGain}dB
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {/* 減小按鈕 */}
+                  <button
+                    onClick={() => setMidGain(g => Math.max(-12, g - 1))}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800/80 hover:bg-gray-700 active:scale-90 text-blue-300 border border-blue-500/20 active:bg-blue-950/40 transition-all shrink-0 select-none shadow-[0_0_8px_rgba(59,130,246,0.08)]"
+                  >
+                    <Minus size={12} />
+                  </button>
+                  {/* 滑桿本體 (縮小寬度，加上 touch-action: pan-y，不影響網頁垂直滑動) */}
+                  <input 
+                    type="range" 
+                    min={-12} 
+                    max={12} 
+                    step={1} 
+                    value={midGain} 
+                    onChange={e => setMidGain(Number(e.target.value))} 
+                    className="flex-1 h-2 bg-gray-800 rounded-full appearance-none cursor-pointer accent-blue-500" 
+                    style={{ touchAction: 'pan-y' }}
+                  />
+                  {/* 增大按鈕 */}
+                  <button
+                    onClick={() => setMidGain(g => Math.min(12, g + 1))}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800/80 hover:bg-gray-700 active:scale-90 text-blue-300 border border-blue-500/20 active:bg-blue-950/40 transition-all shrink-0 select-none shadow-[0_0_8px_rgba(59,130,246,0.08)]"
+                  >
+                    <Plus size={12} />
+                  </button>
+                </div>
+              </div>
+
+              {/* High 水平 */}
+              <div 
+                className="rounded-xl p-3 border transition-all duration-300 flex flex-col gap-2"
+                style={{
+                  borderColor: highGain !== 0 ? 'rgba(236, 72, 153, 0.4)' : 'rgba(55, 65, 81, 0.4)',
+                  boxShadow: highGain !== 0 ? '0 0 12px rgba(236, 72, 153, 0.12)' : 'none',
+                  backgroundColor: highGain !== 0 ? 'rgba(236, 72, 153, 0.02)' : 'rgba(17, 24, 39, 0.1)'
+                }}
+              >
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-xs font-bold text-pink-300">High</span>
+                  <span className="text-xs font-mono font-bold" style={{ color: highGain !== 0 ? '#f472b6' : '#6b7280' }}>
+                    {highGain > 0 ? '+' : ''}{highGain}dB
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {/* 減小按鈕 */}
+                  <button
+                    onClick={() => setHighGain(g => Math.max(-12, g - 1))}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800/80 hover:bg-gray-700 active:scale-90 text-pink-300 border border-pink-500/20 active:bg-pink-950/40 transition-all shrink-0 select-none shadow-[0_0_8px_rgba(236,72,153,0.08)]"
+                  >
+                    <Minus size={12} />
+                  </button>
+                  {/* 滑桿本體 (縮小寬度，加上 touch-action: pan-y，不影響網頁垂直滑動) */}
+                  <input 
+                    type="range" 
+                    min={-12} 
+                    max={12} 
+                    step={1} 
+                    value={highGain} 
+                    onChange={e => setHighGain(Number(e.target.value))} 
+                    className="flex-1 h-2 bg-gray-800 rounded-full appearance-none cursor-pointer accent-pink-500" 
+                    style={{ touchAction: 'pan-y' }}
+                  />
+                  {/* 增大按鈕 */}
+                  <button
+                    onClick={() => setHighGain(g => Math.min(12, g + 1))}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800/80 hover:bg-gray-700 active:scale-90 text-pink-300 border border-pink-500/20 active:bg-pink-950/40 transition-all shrink-0 select-none shadow-[0_0_8px_rgba(236,72,153,0.08)]"
+                  >
+                    <Plus size={12} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>

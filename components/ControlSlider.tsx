@@ -54,6 +54,7 @@ export const ControlSlider: React.FC<ControlSliderProps> = ({
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+        style={{ touchAction: 'pan-y' }}
       />
       <div className="flex justify-between mt-2 text-xs text-gray-500 font-mono">
         <span>{min}{unit}</span>

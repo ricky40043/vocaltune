@@ -339,6 +339,7 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
                         className="w-full h-1 bg-gray-700 rounded-full appearance-none cursor-pointer slider-thumb-purple"
                         style={{
                             backgroundImage: `linear-gradient(to right, ${muted ? '#4b5563' : config.wave}, #1f2937)`,
+                            touchAction: 'pan-y'
                         }}
                     />
                 </div>
