@@ -81,6 +81,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPremiumLoading, setIsPremiumLoading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
 
   // Progress & AB State
@@ -131,6 +132,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   const micGainRef = useRef<Tone.Gain | null>(null);
   const eqRef = useRef<Tone.EQ3 | null>(null);
   const playerRef = useRef<Tone.Player | Tone.GrainPlayer | null>(null); // Track player synchronous
+  const originalBufferRef = useRef<AudioBuffer | null>(null); // 保存原始完美的音訊 buffer
 
   useEffect(() => {
     const initAudio = async () => {
@@ -259,6 +261,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         console.log(`[LocalPlayer] Loaded remote URL: ${audioFileUrl}`);
 
         // CRITICAL FIX: Update Ref so cleanup works!
+        originalBufferRef.current = audioBuffer; // 保存原始無損的 Buffer
         playerRef.current = newPlayer;
         setPlayer(newPlayer);
 
@@ -311,6 +314,65 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
       }
     };
   }, [audioFileUrl]); // Keep deps stick to URL to avoid re-runs
+
+  // Premium Pitch Shifting Debounce — 雙引擎架構：拉動時 Tone.js 零延遲預聽，停下後後端高品質無損變調 + 無縫替換
+  useEffect(() => {
+    if (!player || !audioFileUrl) return;
+
+    if (detune === 0) {
+      // 歸零時，直接無縫將 Buffer 還原為最完美的原始無損音源
+      if (originalBufferRef.current) {
+        player.buffer.set(originalBufferRef.current);
+        player.detune = 0;
+      }
+      setIsPremiumLoading(false);
+      return;
+    }
+
+    // 當使用者在拉動時，前端會即時執行 player.detune = detune (Tone.js 零延遲預聽)
+    // 我們使用 600ms 的 Debounce 防震動，停下來才向後端請求高品質無損檔
+    const timer = setTimeout(async () => {
+      const semitones = detune / 100;
+      console.log(`[PremiumPitch] Fetching high-quality ${semitones} shift from backend...`);
+      setIsPremiumLoading(true);
+      
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/pitch-shift-premium`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file_path: audioFileUrl, semitones }),
+        });
+        
+        if (!response.ok) throw new Error('Premium pitch shift failed');
+        const data = await response.json();
+        const premiumUrl = `${API_BASE_URL}${data.file_url}`;
+        
+        console.log(`[PremiumPitch] High-quality file ready: ${premiumUrl}. Loading buffer...`);
+        
+        // 在背景無中斷加載該高品質變調檔的 Buffer
+        const res = await fetch(premiumUrl);
+        const ab = await res.arrayBuffer();
+        
+        // 避開 UI 渲染主線程，在 Tone 音訊上下文進行非同步解碼
+        const audioBuffer = await Tone.context.decodeAudioData(ab);
+        
+        // 確保加載完成後，使用者沒有再次調整音調 (狀態依然吻合)
+        if (detune === semitones * 100 && player) {
+          console.log(`[PremiumPitch] Seamlessly replacing player buffer with premium version!`);
+          // 無縫替換播放器的音訊 Buffer，播放時間不受任何干擾，完美無缺
+          player.buffer.set(audioBuffer);
+          // 將實時變音歸零，因為後端回傳的高品質檔已經是移好音高的了，前端此時不需要再次變調！
+          player.detune = 0; 
+        }
+      } catch (err) {
+        console.error('[PremiumPitch] Error loading premium pitch shifted buffer:', err);
+      } finally {
+        setIsPremiumLoading(false);
+      }
+    }, 600); // 600ms Debounce
+
+    return () => clearTimeout(timer);
+  }, [detune, audioFileUrl, player]);
 
   // Reset all settings
   const handleReset = () => {
@@ -669,6 +731,12 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
                 <div className="flex justify-between items-center mb-3">
                   <div className="flex items-center gap-2 text-gray-300 font-medium text-xs">
                     <span>升降 Key (半音/全音)</span>
+                    {isPremiumLoading && (
+                      <span className="flex items-center gap-1 text-[10px] text-purple-400 font-bold animate-pulse ml-1 shrink-0">
+                        <Loader2 size={11} className="animate-spin text-purple-500" />
+                        ✨ 高品質無損處理中...
+                      </span>
+                    )}
                   </div>
                   <button
                     onClick={() => setDetune(0)}

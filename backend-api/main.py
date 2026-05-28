@@ -1364,6 +1364,86 @@ async def get_transcribe_status(task_id: str):
         "midi_url": status.get("midi_url")
     }
 
+class PitchShiftRequest(BaseModel):
+    file_path: str
+    semitones: float
+
+@app.post("/api/pitch-shift-premium")
+def pitch_shift_premium(request: PitchShiftRequest):
+    """
+    使用後端 Librosa 進行高品質無損變調，支援高質感 Caching 機制
+    """
+    import librosa
+    import soundfile as sf
+    from urllib.parse import urlparse
+
+    file_path = request.file_path
+    semitones = request.semitones
+    
+    # 1. 決定檔案的真實磁碟路徑
+    if "://" in file_path:
+        try:
+            file_path = urlparse(file_path).path
+        except:
+            pass
+            
+    if file_path.startswith("/files/downloads/"):
+        filename = file_path.replace("/files/downloads/", "")
+        audio_path = DOWNLOADS_DIR / filename
+    elif file_path.startswith("/files/separated/"):
+        filename = file_path.replace("/files/separated/", "")
+        audio_path = SEPARATED_DIR / filename
+    else:
+        audio_path = Path(file_path)
+        
+    if not audio_path.exists():
+        # Fallback search
+        found = list(DOWNLOADS_DIR.glob(audio_path.name)) + list(SEPARATED_DIR.glob(audio_path.name))
+        if found:
+            audio_path = found[0]
+        else:
+            raise HTTPException(status_code=404, detail="找不到音訊檔案")
+            
+    # 如果 semitones 為 0，則直接返回原檔 URL
+    if abs(semitones) < 0.01:
+        return {"status": "success", "file_url": request.file_path}
+        
+    # 2. 生成快取檔名 (格式: {原檔名}_pitch_{semitones}.wav)
+    job_id = audio_path.parent.name if audio_path.parent != DOWNLOADS_DIR else "downloads"
+    output_filename = f"{audio_path.stem}_pitch_{semitones:.1f}.wav"
+    output_path = audio_path.parent / output_filename
+    
+    # URL 格式
+    if audio_path.parent != DOWNLOADS_DIR:
+        file_url = f"/files/separated/{job_id}/{output_filename}"
+    else:
+        file_url = f"/files/downloads/{output_filename}"
+        
+    # 3. 檢查快取是否存在，存在則 1ms 內瞬間返還
+    if output_path.exists():
+        print(f"[PitchShift] Cache Hit! Returning: {file_url}")
+        return {"status": "success", "file_url": file_url}
+        
+    # 4. 進行高品質變調 (Librosa + SoundFile)
+    try:
+        print(f"[PitchShift] Shifting {audio_path} by {semitones} semitones using Librosa...")
+        
+        # 載入原檔 (sr=None 保持原生採樣率確保極致品質)
+        y, sr = librosa.load(str(audio_path), sr=None)
+        
+        # 使用 librosa.effects.pitch_shift 高品質變調
+        y_shifted = librosa.effects.pitch_shift(y=y, sr=sr, n_steps=semitones)
+        
+        # 寫入目標檔案
+        sf.write(str(output_path), y_shifted, sr)
+        
+        print(f"[PitchShift] Shift Completed! Saved to: {output_path}")
+        return {"status": "success", "file_url": file_url}
+        
+    except Exception as e:
+        print(f"[PitchShift] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============== Run Server ==============
 
 if __name__ == "__main__":
