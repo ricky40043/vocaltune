@@ -70,6 +70,38 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
     // 取得可用的檔案 URL (優先本地上傳，其次來自下載)
     const effectiveFileUrl = localFileUrl || audioFileUrl;
 
+    // 斷點續傳進度恢復機制：當更換歌曲或初始化時，自動檢測 localStorage
+    useEffect(() => {
+        const filePath = localFileUrl || audioFileUrl;
+        if (!filePath) return;
+
+        try {
+            const savedJobs = JSON.parse(localStorage.getItem('vocaltune_separated_jobs') || '{}');
+            const jobInfo = savedJobs[filePath];
+            
+            if (jobInfo) {
+                console.log('[AISeparator] Found active job in localStorage for:', filePath, jobInfo);
+                setJobId(jobInfo.jobId);
+                setStems(jobInfo.stems);
+                
+                // 如果已完成或有錯誤，設為 'separating' 觸發一次拉取，以加載歷史音軌或顯示錯誤
+                if (jobInfo.status === 'completed' || jobInfo.status === 'error') {
+                    setStatus('separating');
+                } else {
+                    setStatus(jobInfo.status as any);
+                }
+            } else {
+                // 如果這首歌沒有進行中的分離任務，重置狀態以避免殘留上一首歌的結果
+                setJobId(null);
+                setStatus('idle');
+                setProgress(0);
+                setTracks({});
+            }
+        } catch (e) {
+            console.error('Failed to parse saved jobs from localStorage:', e);
+        }
+    }, [audioFileUrl, localFileUrl]);
+
     // 檔案上傳處理
     const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -156,7 +188,30 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
             }
 
             const data = await response.json();
-            setJobId(data.job_id);
+
+            // 寫入 localStorage 持久化儲存以利斷點與刷新復原
+            try {
+                const activeJob = {
+                    jobId: data.job_id,
+                    stems: stems,
+                    status: data.status || 'pending'
+                };
+                const savedJobs = JSON.parse(localStorage.getItem('vocaltune_separated_jobs') || '{}');
+                savedJobs[filePathToSend] = activeJob;
+                localStorage.setItem('vocaltune_separated_jobs', JSON.stringify(savedJobs));
+                console.log('[AISeparator] Persisted active job details to localStorage:', activeJob);
+            } catch (e) {
+                console.error('Failed to save job to localStorage:', e);
+            }
+
+            // 若後端返回的 status 已經是 completed (快取命中)，則直接將狀態設為完成
+            if (data.status === 'completed') {
+                setJobId(data.job_id);
+                setStatus('separating'); // 這會觸發一次狀態查詢來載入音軌
+            } else {
+                setJobId(data.job_id);
+                setStatus('separating');
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : '連線失敗');
             setStatus('error');
@@ -169,6 +224,8 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
             return;
         }
 
+        const currentFilePath = localFileUrl || audioFileUrl;
+
         const pollInterval = setInterval(async () => {
             try {
                 const response = await fetch(`${API_BASE_URL}/api/status/${jobId}`);
@@ -179,6 +236,20 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
 
                 if (data.status === 'completed' && data.tracks) {
                     setStatus('completed');
+                    
+                    // 同步更新 localStorage 為 completed 狀態
+                    if (currentFilePath) {
+                        try {
+                            const savedJobs = JSON.parse(localStorage.getItem('vocaltune_separated_jobs') || '{}');
+                            if (savedJobs[currentFilePath]) {
+                                savedJobs[currentFilePath].status = 'completed';
+                                localStorage.setItem('vocaltune_separated_jobs', JSON.stringify(savedJobs));
+                            }
+                        } catch (e) {
+                            console.error('Failed to update localStorage status:', e);
+                        }
+                    }
+
                     // Initialize tracks
                     const initialTracks: Record<string, TrackState> = {};
                     Object.entries(data.tracks).forEach(([name, url]) => {
@@ -195,6 +266,20 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
                 } else if (data.status === 'error') {
                     setError(data.error || '處理失敗');
                     setStatus('error');
+
+                    // 同步更新 localStorage 為 error 狀態
+                    if (currentFilePath) {
+                        try {
+                            const savedJobs = JSON.parse(localStorage.getItem('vocaltune_separated_jobs') || '{}');
+                            if (savedJobs[currentFilePath]) {
+                                savedJobs[currentFilePath].status = 'error';
+                                localStorage.setItem('vocaltune_separated_jobs', JSON.stringify(savedJobs));
+                            }
+                        } catch (e) {
+                            console.error('Failed to update localStorage status:', e);
+                        }
+                    }
+
                     clearInterval(pollInterval);
                 }
             } catch (err) {
@@ -203,7 +288,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ audioFileUrl
         }, 2000);
 
         return () => clearInterval(pollInterval);
-    }, [jobId, status]);
+    }, [jobId, status, localFileUrl, audioFileUrl]);
 
     // 預估剩餘時間計算
     useEffect(() => {

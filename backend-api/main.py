@@ -881,9 +881,8 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
     AI 音軌分離
     - 使用 Demucs 分離音軌
     - 不需要雲端服務
+    - 支援確定性 MD5 快取金鑰，秒速載入已完成歷史結果
     """
-    job_id = str(uuid.uuid4())[:8]
-    
     # Determine full path - handle both URL and path formats
     file_path = request.file_path
     
@@ -926,7 +925,31 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
             if audio_path.parent.exists():
                 print(f"[Debug] Dir content of {audio_path.parent}: {list(audio_path.parent.glob('*'))}")
             raise HTTPException(status_code=404, detail=f"找不到音訊檔案: {request.file_path}")
+
+    # ================= 確定性快取優化系統 =================
+    # 基於「音訊檔案名稱 + 大小 + 分離軌數 stems」計算唯一的確定性 job_id 雜湊金鑰
+    import hashlib
+    file_name = audio_path.name
+    file_size = audio_path.stat().st_size if audio_path.exists() else 0
+    cache_str = f"{file_name}_{file_size}_{request.stems}"
+    job_id = hashlib.md5(cache_str.encode()).hexdigest()[:12]
     
+    print(f"[Backend] Computed deterministic job_id: {job_id} for {file_name} with {request.stems} stems")
+    
+    # 檢查是否已完成分離且實體音軌檔案存在
+    existing_status = get_job_status(job_id)
+    output_dir = SEPARATED_DIR / job_id
+    vocals_exist = (output_dir / "vocals.wav").exists()
+    
+    if existing_status.get("status") == "completed" and vocals_exist:
+        print(f"[Backend] Cache Hit! Job {job_id} is already completed. Returning cached results immediately.")
+        return DownloadResponse(
+            job_id=job_id,
+            status="completed",
+            message="快取命中！音軌分離結果已加載。"
+        )
+    
+    # 若有殘留的 error 狀態或未完成狀態，將其重置並更新狀態為 pending
     update_job_status(job_id, {
         "status": "pending",
         "progress": 0,
