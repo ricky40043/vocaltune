@@ -11,6 +11,7 @@ services:
       - ./backend-api/downloads:/app/backend-api/downloads
       - ./backend-api/separated:/app/backend-api/separated
       - ./backend-api/karaoke_output:/app/backend-api/karaoke_output
+      - ./backend-api/vocaltune.db:/app/backend-api/vocaltune.db
     restart: unless-stopped
     # Optional CPU limit to keep your PC smooth
     # deploy:
