@@ -943,35 +943,7 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
     video_id = extract_youtube_id(youtube_url)
     print(f"[Backend] request from user: {username} (id={user_id}), url: {youtube_url}, parsed video_id: {video_id}")
 
-    # 3. 跨用戶 YouTube 快取命中檢查 (YouTube 模式)
-    if video_id:
-        cached_song = db.get_cached_youtube_song(video_id, stems)
-        if cached_song:
-            cached_job_id = cached_song["job_id"]
-            output_dir = SEPARATED_DIR / cached_job_id
-            vocals_exist = (output_dir / "vocals.wav").exists()
-            
-            if vocals_exist:
-                print(f"[Backend] Database Cache Hit! Sharing YouTube job {cached_job_id} for user {username}")
-                # 建立使用者歷史關聯
-                db.add_user_history(user_id, cached_song["id"])
-                
-                # 同步到記憶體 status store 中以供狀態拉取
-                tracks = json.loads(cached_song["tracks_json"]) if cached_song["tracks_json"] else {}
-                update_job_status(cached_job_id, {
-                    "status": "completed",
-                    "progress": 100,
-                    "message": "快取命中！音軌分離結果已加載。",
-                    "tracks": tracks
-                })
-                
-                return DownloadResponse(
-                    job_id=cached_job_id,
-                    status="completed",
-                    message="快取命中！音軌分離結果已加載。"
-                )
-
-    # 4. 決定實體檔案路徑
+    # 3. 決定實體檔案路徑
     if "://" in file_path:
         try:
             from urllib.parse import urlparse
@@ -1006,13 +978,42 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
             print(f"[Error] File not found at: {audio_path}")
             raise HTTPException(status_code=404, detail=f"找不到音訊檔案: {request.file_path}")
 
-    # 5. 計算確定性工作 job_id
+    # 4. 計算確定性工作 job_id
     file_name = audio_path.name
     file_size = audio_path.stat().st_size if audio_path.exists() else 0
     cache_str = f"{file_name}_{file_size}_{stems}"
     job_id = hashlib.md5(cache_str.encode()).hexdigest()[:12]
     
     print(f"[Backend] Computed deterministic job_id: {job_id} for {file_name} with {stems} stems")
+
+    # 5. 跨用戶 YouTube 快取命中檢查 (YouTube 模式) - 必須確保快取歌曲的 job_id 與當前實體檔案算出來的 job_id 完全一致
+    if video_id:
+        cached_song = db.get_cached_youtube_song(video_id, stems)
+        # 強加校驗：cached_song["job_id"] 必須與當前 job_id 完全相符，才允許跨用戶快取命中
+        if cached_song and cached_song["job_id"] == job_id:
+            cached_job_id = cached_song["job_id"]
+            output_dir = SEPARATED_DIR / cached_job_id
+            vocals_exist = (output_dir / "vocals.wav").exists()
+            
+            if vocals_exist:
+                print(f"[Backend] Database Cache Hit! Sharing YouTube job {cached_job_id} for user {username}")
+                # 建立使用者歷史關聯
+                db.add_user_history(user_id, cached_song["id"])
+                
+                # 同步到記憶體 status store 中以供狀態拉取
+                tracks = json.loads(cached_song["tracks_json"]) if cached_song["tracks_json"] else {}
+                update_job_status(cached_job_id, {
+                    "status": "completed",
+                    "progress": 100,
+                    "message": "快取命中！音軌分離結果已加載。",
+                    "tracks": tracks
+                })
+                
+                return DownloadResponse(
+                    job_id=cached_job_id,
+                    status="completed",
+                    message="快取命中！音軌分離結果已加載。"
+                )
     
     # 6. 檢查是否已有相同 job_id 的本地快取 (本地檔案快取命中)
     existing_status = get_job_status(job_id)

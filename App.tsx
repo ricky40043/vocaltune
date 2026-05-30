@@ -535,6 +535,8 @@ export default function App() {
                                         if (e.target.files?.[0]) {
                                             const file = e.target.files[0];
                                             const url = URL.createObjectURL(file);
+                                            setUrl(''); // Clear YouTube URL to avoid state pollution
+                                            setUrlError(null);
                                             setDownloadedFileUrl(null); // Clear download URL
                                             setDownloadedFileUrl(url);
                                             setActiveTab('pitcher');
@@ -586,7 +588,7 @@ export default function App() {
                         audioFileUrl={downloadedFileUrl ? (downloadedFileUrl.startsWith('blob:') ? downloadedFileUrl : `${API_BASE_URL}${downloadedFileUrl}`) : undefined}
                         isActive={activeTab === 'splitter'}
                         currentUser={currentUser}
-                        youtubeUrl={url && !urlError ? url : undefined}
+                        youtubeUrl={downloadedFileUrl && !downloadedFileUrl.startsWith('blob:') ? (url && !urlError ? url : undefined) : undefined}
                         onTriggerLogin={() => setShowLogin(true)}
                     />
                 </div>
@@ -601,7 +603,7 @@ export default function App() {
                 {/* TAB 5: KARAOKE - 卡拉OK */}
                 <div style={{ display: activeTab === 'karaoke' ? 'block' : 'none' }} className="animate-fade-in space-y-4 w-full">
                     <KaraokePlayer
-                        youtubeUrl={url && !urlError ? url : undefined}
+                        youtubeUrl={downloadedFileUrl && !downloadedFileUrl.startsWith('blob:') ? (url && !urlError ? url : undefined) : undefined}
                         isActive={activeTab === 'karaoke'}
                         currentUser={currentUser}
                     />
