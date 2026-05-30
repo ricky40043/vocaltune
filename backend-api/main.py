@@ -31,6 +31,7 @@ from job_store import job_status_store, update_job_status, get_job_status
 from karaoke import process_karaoke_job, KARAOKE_DIR
 from ai_device import demucs_python, get_demucs_device
 from utils.youtube_search import search_youtube
+import db
 
 # Queue Persistence (supports per-user queues)
 def get_queue_file(user: str = None) -> Path:
@@ -288,6 +289,8 @@ class DownloadResponse(BaseModel):
 class SeparateRequest(BaseModel):
     file_path: str  # Path to audio file (can be job_id or filename)
     stems: Optional[str] = "6"  # "4", "6"
+    username: Optional[str] = None
+    youtube_url: Optional[str] = None
 
 class JobStatusResponse(BaseModel):
     job_id: str
@@ -320,6 +323,7 @@ class SongRequest(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
+    db.init_db()
     asyncio.create_task(queue_processor())
     asyncio.create_task(auto_cleanup())
 
@@ -881,12 +885,68 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
     AI 音軌分離
     - 使用 Demucs 分離音軌
     - 不需要雲端服務
-    - 支援確定性 MD5 快取金鑰，秒速載入已完成歷史結果
+    - 支援多用戶歷史紀錄關聯
+    - 支援跨用戶 YouTube 快取共享，秒速命中已完成之歷史結果
     """
-    # Determine full path - handle both URL and path formats
-    file_path = request.file_path
+    import hashlib
+    import re
     
-    # Remove full URL prefix - Handle ANY URL format (localhost, IP, domain)
+    file_path = request.file_path
+    stems = request.stems or "6"
+    username = request.username or "guest_default"
+    youtube_url = request.youtube_url
+    
+    # 1. 取得或創建用戶
+    user_id = db.get_or_create_user(username)
+    
+    # 2. 輔助函數：提取 YouTube Video ID
+    def extract_youtube_id(url: str) -> Optional[str]:
+        if not url:
+            return None
+        patterns = [
+            r"(?:v=|\/)([\w-]{11})(?:\?|&|$)",
+            r"youtu\.be\/([\w-]{11})",
+            r"youtube\.com\/shorts\/([\w-]{11})",
+            r"youtube\.com\/embed\/([\w-]{11})"
+        ]
+        for p in patterns:
+            match = re.search(p, url)
+            if match:
+                return match.group(1)
+        return None
+
+    video_id = extract_youtube_id(youtube_url)
+    print(f"[Backend] request from user: {username} (id={user_id}), url: {youtube_url}, parsed video_id: {video_id}")
+
+    # 3. 跨用戶 YouTube 快取命中檢查 (YouTube 模式)
+    if video_id:
+        cached_song = db.get_cached_youtube_song(video_id, stems)
+        if cached_song:
+            cached_job_id = cached_song["job_id"]
+            output_dir = SEPARATED_DIR / cached_job_id
+            vocals_exist = (output_dir / "vocals.wav").exists()
+            
+            if vocals_exist:
+                print(f"[Backend] Database Cache Hit! Sharing YouTube job {cached_job_id} for user {username}")
+                # 建立使用者歷史關聯
+                db.add_user_history(user_id, cached_song["id"])
+                
+                # 同步到記憶體 status store 中以供狀態拉取
+                tracks = json.loads(cached_song["tracks_json"]) if cached_song["tracks_json"] else {}
+                update_job_status(cached_job_id, {
+                    "status": "completed",
+                    "progress": 100,
+                    "message": "快取命中！音軌分離結果已加載。",
+                    "tracks": tracks
+                })
+                
+                return DownloadResponse(
+                    job_id=cached_job_id,
+                    status="completed",
+                    message="快取命中！音軌分離結果已加載。"
+                )
+
+    # 4. 決定實體檔案路徑
     if "://" in file_path:
         try:
             from urllib.parse import urlparse
@@ -905,15 +965,13 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
         audio_path = SEPARATED_DIR / filename
         print(f"[Debug] Resolved SEPARATED path: {audio_path}")
     else:
-        # Handle cases where path might still be absolute or relative on disk
         audio_path = Path(file_path)
         print(f"[Debug] Resolved Direct path: {audio_path}")
     
     if not audio_path.exists():
-        # Fallback: Try to find by filename only
+        # 嘗試在目錄下尋找
         search_name = audio_path.name
         print(f"[Debug] Exact path not found. Searching for {search_name} in directories...")
-        
         found = list(DOWNLOADS_DIR.rglob(search_name)) + list(SEPARATED_DIR.rglob(search_name))
         
         if found:
@@ -921,33 +979,74 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
             print(f"[Debug] Found fallback file: {audio_path}")
         else:
             print(f"[Error] File not found at: {audio_path}")
-            # List dir content for debugging
-            if audio_path.parent.exists():
-                print(f"[Debug] Dir content of {audio_path.parent}: {list(audio_path.parent.glob('*'))}")
             raise HTTPException(status_code=404, detail=f"找不到音訊檔案: {request.file_path}")
 
-    # ================= 確定性快取優化系統 =================
-    # 基於「音訊檔案名稱 + 大小 + 分離軌數 stems」計算唯一的確定性 job_id 雜湊金鑰
-    import hashlib
+    # 5. 計算確定性工作 job_id
     file_name = audio_path.name
     file_size = audio_path.stat().st_size if audio_path.exists() else 0
-    cache_str = f"{file_name}_{file_size}_{request.stems}"
+    cache_str = f"{file_name}_{file_size}_{stems}"
     job_id = hashlib.md5(cache_str.encode()).hexdigest()[:12]
     
-    print(f"[Backend] Computed deterministic job_id: {job_id} for {file_name} with {request.stems} stems")
+    print(f"[Backend] Computed deterministic job_id: {job_id} for {file_name} with {stems} stems")
     
-    # 檢查是否已完成分離且實體音軌檔案存在
+    # 6. 檢查是否已有相同 job_id 的本地快取 (本地檔案快取命中)
     existing_status = get_job_status(job_id)
     output_dir = SEPARATED_DIR / job_id
     vocals_exist = (output_dir / "vocals.wav").exists()
     
+    # 嘗試在資料庫中尋找或創建這首歌曲
+    conn = db.get_db_connection()
+    song_row = conn.execute("SELECT id FROM songs WHERE job_id = ?", (job_id,)).fetchone()
+    conn.close()
+    
+    song_id = song_row["id"] if song_row else None
+    
     if existing_status.get("status") == "completed" and vocals_exist:
-        print(f"[Backend] Cache Hit! Job {job_id} is already completed. Returning cached results immediately.")
+        print(f"[Backend] Local Cache Hit! Job {job_id} is already completed. Returning cached results immediately.")
+        
+        # 若資料庫無此紀錄（舊資料轉移），補建歌曲紀錄
+        if not song_id:
+            song_type = "youtube" if video_id else "upload"
+            # 嘗試讀取已完成的音軌
+            tracks = {}
+            for name in ["vocals", "drums", "bass", "guitar", "piano", "other"]:
+                if (output_dir / f"{name}.wav").exists():
+                    tracks[name] = f"/files/separated/{job_id}/{name}.wav"
+            
+            song_id = db.create_song_record(
+                job_id=job_id,
+                song_type=song_type,
+                stems=stems,
+                title=audio_path.stem,
+                youtube_url=youtube_url,
+                video_id=video_id,
+                file_path=str(audio_path)
+            )
+            db.update_song_status_db(job_id, "completed", tracks_dict=tracks)
+            
+        # 建立用戶歷史關聯
+        db.add_user_history(user_id, song_id)
+        
         return DownloadResponse(
             job_id=job_id,
             status="completed",
             message="快取命中！音軌分離結果已加載。"
         )
+    
+    # 7. 快取未命中：建立新歌曲記錄與歷史關聯，開始背景分離
+    if not song_id:
+        song_type = "youtube" if video_id else "upload"
+        song_id = db.create_song_record(
+            job_id=job_id,
+            song_type=song_type,
+            stems=stems,
+            title=audio_path.stem,
+            youtube_url=youtube_url,
+            video_id=video_id,
+            file_path=str(audio_path)
+        )
+        
+    db.add_user_history(user_id, song_id)
     
     # 若有殘留的 error 狀態或未完成狀態，將其重置並更新狀態為 pending
     update_job_status(job_id, {
@@ -957,7 +1056,7 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
     })
     
     # Start background separation
-    background_tasks.add_task(separate_audio_local, job_id, str(audio_path), request.stems)
+    background_tasks.add_task(separate_audio_local, job_id, str(audio_path), stems)
     
     return DownloadResponse(
         job_id=job_id,
@@ -1112,6 +1211,46 @@ async def clear_history(user: str = None):
                 if item.is_dir():
                     shutil.rmtree(item)
             return {"message": "History cleared"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============== AI Separation History Endpoints ==============
+
+@app.get("/api/separate/history")
+async def get_separate_history(username: str):
+    """獲取指定使用者的分離歷史紀錄"""
+    if not username:
+        raise HTTPException(status_code=400, detail="請提供 username 參數")
+    try:
+        history = db.get_user_history_list(username)
+        return history
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/separate/history/{job_id}")
+async def delete_separate_history_item(job_id: str, username: str):
+    """刪除該用戶對某首歌曲的分離歷史關聯（不影響檔案實體與其他用戶）"""
+    if not username:
+        raise HTTPException(status_code=400, detail="請提供 username 參數")
+    try:
+        success = db.delete_user_history_item(username, job_id)
+        if success:
+            return {"message": f"成功刪除該首歌曲之歷史紀錄"}
+        else:
+            raise HTTPException(status_code=404, detail="找不到對應的歷史紀錄")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/separate/history/clear")
+async def clear_separate_history(username: str):
+    """清空該用戶的所有分離歷史關聯"""
+    if not username:
+        raise HTTPException(status_code=400, detail="請提供 username 參數")
+    try:
+        deleted_count = db.clear_user_history(username)
+        return {"message": f"成功清除該用戶 {deleted_count} 筆歷史紀錄"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

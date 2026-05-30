@@ -25,9 +25,23 @@ def update_job_status(job_id: str, diff: dict):
     except Exception as e:
         logging.error(f"Failed to persist job status for {job_id}: {str(e)}")
     
-    # Log status changes
+    # 同步更新 SQLite
     status = diff.get("status")
     progress = diff.get("progress")
+    if status:
+        try:
+            import db
+            tracks = diff.get("tracks")
+            error_msg = diff.get("error") or diff.get("message") if status == "error" else None
+            db.update_song_status_db(
+                job_id=job_id,
+                status=status,
+                tracks_dict=tracks,
+                error_message=error_msg
+            )
+        except Exception as e:
+            logging.error(f"Failed to sync status to DB for job {job_id}: {str(e)}")
+
     if status or progress:
         logging.info(f"Status Update [{job_id}]: {status} - {progress}%")
 

@@ -25,19 +25,52 @@ export default function App() {
         ? 'karaoke'
         : 'main';
 
-    // User / Login (KTV mode only)
+    // User / Login (Global Multi-user mechanism)
     const urlParams = new URLSearchParams(window.location.search);
-    const currentUser = urlParams.get('user');
-    const [showLogin, setShowLogin] = useState(() => {
-        return APP_MODE === 'karaoke' && !currentUser;
-    });
+    let currentUser = urlParams.get('user');
+    
+    // Auto-Restore: 如果 URL 中沒有 user，但 localStorage 存有上一次的使用者，自動進行跳轉以維持登入
+    if (!currentUser && typeof window !== 'undefined') {
+        const savedUser = localStorage.getItem('vocaltune_username');
+        if (savedUser) {
+            const params = new URLSearchParams(window.location.search);
+            params.set('user', savedUser);
+            window.location.search = params.toString();
+        }
+    }
+
+    const [showLogin, setShowLogin] = useState(false);
     const [nickname, setNickname] = useState('');
+
+    // 同步當前 URL 上的使用者至 localStorage
+    React.useEffect(() => {
+        if (currentUser) {
+            localStorage.setItem('vocaltune_username', currentUser);
+        }
+    }, [currentUser]);
 
     const handleLogin = () => {
         const name = nickname.trim();
         if (!name) return;
+        localStorage.setItem('vocaltune_username', name);
         const params = new URLSearchParams(window.location.search);
         params.set('user', name);
+        window.location.search = params.toString();
+    };
+
+    const handleGuestLogin = () => {
+        const randId = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const guestName = `訪客_${randId}`;
+        localStorage.setItem('vocaltune_username', guestName);
+        const params = new URLSearchParams(window.location.search);
+        params.set('user', guestName);
+        window.location.search = params.toString();
+    };
+
+    const handleLogout = () => {
+        localStorage.removeItem('vocaltune_username');
+        const params = new URLSearchParams(window.location.search);
+        params.delete('user');
         window.location.search = params.toString();
     };
 
@@ -205,8 +238,8 @@ export default function App() {
 
     return (
         <div className="min-h-screen bg-brand-900 text-white pb-24 md:pb-12 font-sans selection:bg-brand-accent selection:text-white flex flex-col">
-            {/* KTV Login Modal */}
-            {showLogin && (APP_MODE === 'karaoke' || APP_MODE === 'full') && (
+            {/* 全域登入 Modal */}
+            {showLogin && (
                 <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 md:p-8 w-full max-w-sm shadow-2xl animate-fade-in">
                         <div className="flex items-center gap-3 mb-6">
@@ -214,8 +247,8 @@ export default function App() {
                                 <User size={24} className="text-purple-400" />
                             </div>
                             <div>
-                                <h2 className="text-xl font-bold text-white">歡迎來到 KTV</h2>
-                                <p className="text-sm text-gray-400">輸入暱稱建立個人歌單</p>
+                                <h2 className="text-xl font-bold text-white">歡迎使用 VocalTune Pro</h2>
+                                <p className="text-xs text-gray-400 mt-1">輸入暱稱以儲存與載入您的音軌分離歷史</p>
                             </div>
                         </div>
 
@@ -226,22 +259,23 @@ export default function App() {
                                 onChange={(e) => setNickname(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
                                 placeholder="輸入你的暱稱..."
-                                className="w-full bg-gray-800 border-2 border-gray-700 focus:border-purple-500 rounded-xl py-3 px-4 text-white placeholder-gray-500 outline-none transition-colors"
+                                className="w-full bg-gray-800 border-2 border-gray-700 focus:border-purple-500 rounded-xl py-3 px-4 text-white placeholder-gray-500 outline-none transition-colors text-sm"
                                 autoFocus
                             />
                             <button
                                 onClick={handleLogin}
                                 disabled={!nickname.trim()}
-                                className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed text-white font-bold text-lg transition-all flex items-center justify-center gap-2"
+                                className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed text-white font-bold text-base transition-all flex items-center justify-center gap-2"
                             >
-                                <LogIn size={20} />
+                                <LogIn size={18} />
                                 登入
                             </button>
                             <button
-                                onClick={() => setShowLogin(false)}
-                                className="w-full py-2.5 rounded-xl border border-gray-600 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors text-sm"
+                                onClick={handleGuestLogin}
+                                className="w-full py-2.5 rounded-xl border border-gray-600 text-gray-400 hover:text-white hover:bg-gray-850 transition-colors text-sm flex items-center justify-center gap-1.5"
                             >
-                                訪客模式（使用公用歌單）
+                                <Zap size={14} className="text-yellow-400" />
+                                訪客模式（自動生成暱稱）
                             </button>
                         </div>
                     </div>
@@ -265,6 +299,23 @@ export default function App() {
                         )}
                     </div>
                     <div className="flex items-center gap-2 md:gap-4">
+                        {currentUser ? (
+                            <button
+                                onClick={handleLogout}
+                                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg border border-gray-750 transition-colors"
+                            >
+                                <LogIn size={13} className="rotate-180 text-gray-400" />
+                                <span>切換帳號</span>
+                            </button>
+                        ) : (
+                            <button
+                                onClick={() => setShowLogin(true)}
+                                className="flex items-center gap-1.5 text-xs text-purple-300 hover:text-white bg-purple-950/40 hover:bg-purple-900/50 px-3 py-1.5 rounded-lg border border-purple-500/30 transition-all font-bold shadow-md hover:shadow-purple-500/10"
+                            >
+                                <User size={13} className="text-purple-400 animate-pulse" />
+                                <span>登入儲存歷史</span>
+                            </button>
+                        )}
                         <div className="text-[10px] md:text-xs font-mono text-gray-400 bg-gray-800 px-2 py-1 rounded">v4.0</div>
                     </div>
                 </div>
@@ -478,7 +529,7 @@ export default function App() {
                             <label className="block p-6 md:p-8 rounded-2xl border-2 border-dashed border-gray-600 text-center hover:border-brand-accent transition-colors cursor-pointer bg-gray-800/30 hover:bg-gray-800/50 md:min-h-[200px] md:flex md:flex-col md:items-center md:justify-center">
                                 <input
                                     type="file"
-                                    accept="audio/*"
+                                    accept=".mp3, .wav, .m4a, .flac, .ogg, .aac, .mp4, audio/*"
                                     className="hidden"
                                     onChange={(e) => {
                                         if (e.target.files?.[0]) {
@@ -534,6 +585,9 @@ export default function App() {
                     <LocalAISeparator
                         audioFileUrl={downloadedFileUrl ? (downloadedFileUrl.startsWith('blob:') ? downloadedFileUrl : `${API_BASE_URL}${downloadedFileUrl}`) : undefined}
                         isActive={activeTab === 'splitter'}
+                        currentUser={currentUser}
+                        youtubeUrl={url && !urlError ? url : undefined}
+                        onTriggerLogin={() => setShowLogin(true)}
                     />
                 </div>
 
