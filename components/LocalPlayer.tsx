@@ -512,8 +512,8 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     if (typeof window === 'undefined') return;
     try {
       if (!silentAudioRef.current) {
-        // 使用一小段可循環的 base64 靜音音訊，設定 loop = true 進行持續背景播放
-        const audio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
+        // 使用一小段標準格式的 1 秒靜音 MP3 base64，設定 loop = true 進行持續背景播放，100% 確保 iOS 能順利解碼並激活 Playback 類別
+        const audio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAElMUkRNMy45M3JhZGlvAh8AAAAAAAAAAAAAAP/N0QAAMcAFgAMAAAH0gAAAAAAfAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
         audio.loop = true;
         audio.muted = false;
         audio.volume = 0.001; // 人類完全聽不到的極微小音量
