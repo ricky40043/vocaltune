@@ -218,6 +218,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   const reverbRef = useRef<Tone.Reverb | null>(null);
   const micGainRef = useRef<Tone.Gain | null>(null);
   const eqRef = useRef<Tone.EQ3 | null>(null);
+  const playerRef = useRef<Tone.GrainPlayer | null>(null); // 跨 Effect 追蹤播放器實例，避免銷毀與同步異常
   const originalBufferRef = useRef<AudioBuffer | null>(null); // 保存原始完美的音訊 buffer
   const silentAudioRef = useRef<HTMLAudioElement | null>(null); // 背景隱藏原生 Audio 標籤以繞過 iOS 靜音鍵
 
