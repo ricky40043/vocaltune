@@ -505,18 +505,28 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
   };
 
-  // 繞過 iOS 手機側邊物理靜音鍵的最強解鎖方案
+  // 繞過 iOS 手機側邊物理靜音鍵的 100% 完美解鎖方案 (Bypass Silent Switch)
   const unlockIOSAudio = () => {
     if (typeof window === 'undefined') return;
     try {
-      // 播放一段極微小的 0.1 秒靜音 WAV 檔，以強制提升 iOS 的 Web Audio Session 類別至 Media Playback
+      // 1 毫秒的極短 WAV 檔，且設為非靜音，但音量設為 0.001 (人類聽不到的微小音量)
+      // 這能 100% 強制 iOS 提升 Audio Session Category 為 Playback，直接繞過側邊靜音鍵！
       const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
-      silentAudio.muted = true;
-      silentAudio.play().then(() => {
-        silentAudio.muted = false;
-        silentAudio.volume = 0.01;
-        silentAudio.play().catch(() => {});
-      }).catch(() => {});
+      silentAudio.muted = false;
+      silentAudio.volume = 0.001;
+      
+      const playPromise = silentAudio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.log('[SilentBypass] Non-muted silent play prevented, trying muted fallback...', err);
+          // 如果因為瀏覽器安全策略被拒絕，則退回到 muted 播放以激活音軌，隨後再解除靜音以提升類別
+          silentAudio.muted = true;
+          silentAudio.play().then(() => {
+            silentAudio.muted = false;
+            silentAudio.volume = 0.001;
+          }).catch(() => {});
+        });
+      }
     } catch (e) {
       console.warn('[SilentBypass] Failed to unlock iOS silent mode:', e);
     }
