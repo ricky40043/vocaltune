@@ -108,50 +108,14 @@ export default function App() {
     const [videoId, setVideoId] = useState<string | null>(null);
     const [urlError, setUrlError] = useState<string | null>(null);
 
-    // 用於刷新復原的 localStorage 機制
-    const [downloadJobId, setDownloadJobId] = useState<string | null>(() => {
-        return typeof window !== 'undefined' ? localStorage.getItem('vocaltune_download_job_id') : null;
-    });
-    const [downloadStatus, setDownloadStatus] = useState<'idle' | 'downloading' | 'completed' | 'error'>(() => {
-        return (typeof window !== 'undefined' && localStorage.getItem('vocaltune_downloaded_file_url')) ? 'completed' : 'idle';
-    });
+    // 下載與音訊狀態（不再使用 localStorage 進行刷新復原，保持每次刷新都為乾淨初始狀態）
+    const [downloadJobId, setDownloadJobId] = useState<string | null>(null);
+    const [downloadStatus, setDownloadStatus] = useState<'idle' | 'downloading' | 'completed' | 'error'>('idle');
     const [downloadProgress, setDownloadProgress] = useState(0);
     const [downloadMessage, setDownloadMessage] = useState('');
-    const [downloadedFileUrl, setDownloadedFileUrl] = useState<string | null>(() => {
-        return typeof window !== 'undefined' ? localStorage.getItem('vocaltune_downloaded_file_url') : null;
-    });
-    const [downloadedSourceVideoId, setDownloadedSourceVideoId] = useState<string | null>(() => {
-        return typeof window !== 'undefined' ? localStorage.getItem('vocaltune_downloaded_source_video_id') : null;
-    });
+    const [downloadedFileUrl, setDownloadedFileUrl] = useState<string | null>(null);
+    const [downloadedSourceVideoId, setDownloadedSourceVideoId] = useState<string | null>(null);
     const [showRedownloadBanner, setShowRedownloadBanner] = useState(false);
-
-    // 同步儲存歌曲狀態到 localStorage 實現 100% 刷新復原
-    React.useEffect(() => {
-        if (typeof window === 'undefined') return;
-        if (downloadedFileUrl) {
-            localStorage.setItem('vocaltune_downloaded_file_url', downloadedFileUrl);
-        } else {
-            localStorage.removeItem('vocaltune_downloaded_file_url');
-        }
-    }, [downloadedFileUrl]);
-
-    React.useEffect(() => {
-        if (typeof window === 'undefined') return;
-        if (downloadJobId) {
-            localStorage.setItem('vocaltune_download_job_id', downloadJobId);
-        } else {
-            localStorage.removeItem('vocaltune_download_job_id');
-        }
-    }, [downloadJobId]);
-
-    React.useEffect(() => {
-        if (typeof window === 'undefined') return;
-        if (downloadedSourceVideoId) {
-            localStorage.setItem('vocaltune_downloaded_source_video_id', downloadedSourceVideoId);
-        } else {
-            localStorage.removeItem('vocaltune_downloaded_source_video_id');
-        }
-    }, [downloadedSourceVideoId]);
 
     const handleUrlCheck = (e?: React.FormEvent) => {
         if (e) e.preventDefault();
