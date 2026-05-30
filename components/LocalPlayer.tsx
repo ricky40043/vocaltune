@@ -155,7 +155,7 @@ interface LocalPlayerProps {
 
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
   ? (import.meta as any).env.VITE_API_URL
-  : (typeof window !== 'undefined' ? `http://${window.location.hostname}:8050` : 'http://localhost:8050');
+  : ''; // 預設使用相對路徑，相容生產環境反向代理，本地開發透過 Vite 代理轉發
 
 export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset, onFileLoaded, isActive = true }) => {
   const [player, setPlayer] = useState<Tone.GrainPlayer | null>(null);
