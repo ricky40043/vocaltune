@@ -416,7 +416,14 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
       return;
     }
 
-    // 當使用者在拉動時，前端會即時執行 player.detune = detune (Tone.js 零延遲預聽)
+    // ================= 實時 0 延遲變調同步 (音高基準線對齊) =================
+    // 拖曳拉桿的第一時間：將播放器 Buffer 還原至原始無損音源，並同步 player.detune = detune。
+    // 這保證了拖曳時的音高調整能即時、零延遲地發生，且音高基準 100% 準確，絕不重複疊加變音！
+    if (originalBufferRef.current) {
+      player.buffer.set(originalBufferRef.current);
+    }
+    player.detune = detune;
+
     // 我們使用 600ms 的 Debounce 防震動，停下來才向後端請求高品質無損檔
     const timer = setTimeout(async () => {
       const semitones = detune / 100;
@@ -498,8 +505,28 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
   };
 
+  // 繞過 iOS 手機側邊物理靜音鍵的最強解鎖方案
+  const unlockIOSAudio = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      // 播放一段極微小的 0.1 秒靜音 WAV 檔，以強制提升 iOS 的 Web Audio Session 類別至 Media Playback
+      const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
+      silentAudio.muted = true;
+      silentAudio.play().then(() => {
+        silentAudio.muted = false;
+        silentAudio.volume = 0.01;
+        silentAudio.play().catch(() => {});
+      }).catch(() => {});
+    } catch (e) {
+      console.warn('[SilentBypass] Failed to unlock iOS silent mode:', e);
+    }
+  };
+
   const togglePlay = async () => {
     if (!player || !isLoaded) return;
+
+    // 點擊時第一時間同步解鎖 iOS/Safari 物理靜音鍵限制
+    unlockIOSAudio();
 
     // iOS requires Tone.start() to be called synchronously within the user gesture handler.
     // Awaiting before Tone.start() exits the trusted-gesture call stack and iOS will reject the unlock.
