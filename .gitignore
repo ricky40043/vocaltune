@@ -28,6 +28,7 @@ backend-api/venv/
 backend-api/separated/
 backend-api/karaoke_output/
 backend-api/downloads/
+backend-api/db_data/
 downloads/
 separated_audio/
 .env

@@ -5,11 +5,13 @@ from pathlib import Path
 from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "vocaltune.db"
+DB_PATH = BASE_DIR / "db_data" / "vocaltune.db"
 SEPARATED_DIR = BASE_DIR / "separated"
 
 def get_db_connection():
     """取得資料庫連線，設定 timeout 避免鎖庫，並啟用 row_factory 以便回傳 dict"""
+    # 確保資料夾存在以防止 Docker 掛載路徑錯誤
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
     conn.row_factory = sqlite3.Row
     # 啟用外鍵支援
@@ -20,6 +22,8 @@ def get_db_connection():
 
 def init_db():
     """初始化資料表"""
+    # 確保資料夾存在以防止 Docker 掛載路徑錯誤
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     logging.info(f"Initializing database at {DB_PATH}")
     conn = get_db_connection()
     cursor = conn.cursor()
