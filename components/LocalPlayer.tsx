@@ -218,8 +218,8 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   const reverbRef = useRef<Tone.Reverb | null>(null);
   const micGainRef = useRef<Tone.Gain | null>(null);
   const eqRef = useRef<Tone.EQ3 | null>(null);
-  const playerRef = useRef<Tone.Player | Tone.GrainPlayer | null>(null); // Track player synchronous
   const originalBufferRef = useRef<AudioBuffer | null>(null); // 保存原始完美的音訊 buffer
+  const silentAudioRef = useRef<HTMLAudioElement | null>(null); // 背景隱藏原生 Audio 標籤以繞過 iOS 靜音鍵
 
   useEffect(() => {
     const initAudio = async () => {
@@ -394,6 +394,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
     return () => {
       console.log('[LocalPlayer] Cleanup: Effect triggered (URL changed or unmount).');
+      stopIOSSilentBypass(); // 卸載或換歌時暫停背景原生播放器
       if (playerRef.current) {
         playerRef.current.dispose();
         playerRef.current = null;
@@ -470,6 +471,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
   // Reset all settings
   const handleReset = () => {
+    stopIOSSilentBypass(); // 重置時同步暫停解鎖播放器
     setPlaybackRate(1.0);
     setDetune(0);
     setVolume(0);
@@ -505,38 +507,49 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
   };
 
-  // 繞過 iOS 手機側邊物理靜音鍵的 100% 完美解鎖方案 (Bypass Silent Switch)
-  const unlockIOSAudio = () => {
+  // 繞過 iOS 手機側邊物理靜音鍵的 100% 完美終極持續解鎖方案 (Silent Audio Looping Bypass)
+  const startIOSSilentBypass = () => {
     if (typeof window === 'undefined') return;
     try {
-      // 1 毫秒的極短 WAV 檔，且設為非靜音，但音量設為 0.001 (人類聽不到的微小音量)
-      // 這能 100% 強制 iOS 提升 Audio Session Category 為 Playback，直接繞過側邊靜音鍵！
-      const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
-      silentAudio.muted = false;
-      silentAudio.volume = 0.001;
+      if (!silentAudioRef.current) {
+        // 使用一小段可循環的 base64 靜音音訊，設定 loop = true 進行持續背景播放
+        const audio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
+        audio.loop = true;
+        audio.muted = false;
+        audio.volume = 0.001; // 人類完全聽不到的極微小音量
+        silentAudioRef.current = audio;
+      }
       
-      const playPromise = silentAudio.play();
+      const playPromise = silentAudioRef.current.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
-          console.log('[SilentBypass] Non-muted silent play prevented, trying muted fallback...', err);
-          // 如果因為瀏覽器安全策略被拒絕，則退回到 muted 播放以激活音軌，隨後再解除靜音以提升類別
-          silentAudio.muted = true;
-          silentAudio.play().then(() => {
-            silentAudio.muted = false;
-            silentAudio.volume = 0.001;
-          }).catch(() => {});
+          console.log('[SilentBypass] Silent play prevented, trying muted fallback...', err);
+          if (silentAudioRef.current) {
+            silentAudioRef.current.muted = true;
+            silentAudioRef.current.play().then(() => {
+              if (silentAudioRef.current) {
+                silentAudioRef.current.muted = false;
+                silentAudioRef.current.volume = 0.001;
+              }
+            }).catch(() => {});
+          }
         });
       }
     } catch (e) {
-      console.warn('[SilentBypass] Failed to unlock iOS silent mode:', e);
+      console.warn('[SilentBypass] Failed to start iOS silent bypass:', e);
     }
+  };
+
+  const stopIOSSilentBypass = () => {
+    try {
+      if (silentAudioRef.current) {
+        silentAudioRef.current.pause();
+      }
+    } catch (e) {}
   };
 
   const togglePlay = async () => {
     if (!player || !isLoaded) return;
-
-    // 點擊時第一時間同步解鎖 iOS/Safari 物理靜音鍵限制
-    unlockIOSAudio();
 
     // iOS requires Tone.start() to be called synchronously within the user gesture handler.
     // Awaiting before Tone.start() exits the trusted-gesture call stack and iOS will reject the unlock.
@@ -544,9 +557,13 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     const toneReady = Tone.start();
 
     if (isPlaying) {
+      // 暫停時，同步暫停背景的原生解鎖播放器
+      stopIOSSilentBypass();
       Tone.Transport.pause();
       setIsPlaying(false);
     } else {
+      // 播放時，啟動背景的 100% 循環解鎖播放器以繞過物理靜音鍵
+      startIOSSilentBypass();
       await toneReady; // wait for AudioContext running before starting transport
       console.log('[LocalPlayer] Starting Playback...');
       Tone.Transport.start();
