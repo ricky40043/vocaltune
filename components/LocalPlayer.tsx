@@ -221,6 +221,8 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   const playerRef = useRef<Tone.GrainPlayer | null>(null); // 跨 Effect 追蹤播放器實例，避免銷毀與同步異常
   const originalBufferRef = useRef<AudioBuffer | null>(null); // 保存原始完美的音訊 buffer
   const silentAudioRef = useRef<HTMLAudioElement | null>(null); // 背景隱藏原生 Audio 標籤以繞過 iOS 靜音鍵
+  const isPremiumLoadedRef = useRef(false); // 標記目前載入的是否是高品質變調檔
+  const localUploadedPathRef = useRef<string | null>(null); // 快取本地檔案自動上傳後的伺服器路徑
 
   useEffect(() => {
     const initAudio = async () => {
@@ -278,6 +280,9 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   // Load external audio URL when provided
   useEffect(() => {
     if (!audioFileUrl) return;
+
+    localUploadedPathRef.current = null; // 每次重載音樂，清除上一次的自動上傳路徑快取
+    isPremiumLoadedRef.current = false; // 重設為非高品質變調 Buffer
 
     const loadFromUrl = async () => {
       setIsLoading(true);
@@ -408,6 +413,9 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   useEffect(() => {
     if (!player || !audioFileUrl) return;
 
+    // 拉拉桿調整音調的第一時間，我們退回實時預聽狀態，標記 isPremiumLoadedRef 為 false
+    isPremiumLoadedRef.current = false;
+
     if (detune === 0) {
       // 歸零時，直接無縫將 Buffer 還原為最完美的原始無損音源
       if (originalBufferRef.current) {
@@ -429,6 +437,38 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     // 我們使用 600ms 的 Debounce 防震動，停下來才向後端請求高品質無損檔
     const timer = setTimeout(async () => {
       const semitones = detune / 100;
+      let filePathToSend = audioFileUrl;
+
+      // 如果是本地上傳的 blob 檔案且尚未上傳過，則自動上傳至伺服器
+      if (audioFileUrl.startsWith('blob:')) {
+        if (localUploadedPathRef.current) {
+          filePathToSend = localUploadedPathRef.current;
+        } else {
+          try {
+            console.log('[PremiumPitch] Automatically uploading local blob file to server...');
+            const blobRes = await fetch(audioFileUrl);
+            const blob = await blobRes.blob();
+            const formData = new FormData();
+            formData.append('file', new File([blob], fileName || "local_audio.mp3"));
+
+            const uploadRes = await fetch(`${API_BASE_URL}/api/upload`, {
+              method: 'POST',
+              body: formData,
+            });
+
+            if (!uploadRes.ok) throw new Error('自動上傳失敗');
+            const uploadData = await uploadRes.json();
+            localUploadedPathRef.current = uploadData.file_path; // 快取已上傳的路徑
+            filePathToSend = uploadData.file_path;
+            console.log('[PremiumPitch] Upload successful! Server file path:', filePathToSend);
+          } catch (uploadErr) {
+            console.error('[PremiumPitch] Failed to upload local blob:', uploadErr);
+            setIsPremiumLoading(false);
+            return; // 終止本次高品質變調
+          }
+        }
+      }
+
       console.log(`[PremiumPitch] Fetching high-quality ${semitones} shift from backend...`);
       setIsPremiumLoading(true);
       
@@ -436,7 +476,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         const response = await fetch(`${API_BASE_URL}/api/pitch-shift-premium`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file_path: audioFileUrl, semitones }),
+          body: JSON.stringify({ file_path: filePathToSend, semitones }),
         });
         
         if (!response.ok) throw new Error('Premium pitch shift failed');
@@ -459,6 +499,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
           player.buffer.set(audioBuffer);
           // 將實時變音歸零，因為後端回傳的高品質檔已經是移好音高的了，前端此時不需要再次變調！
           player.detune = 0; 
+          isPremiumLoadedRef.current = true; // 標記為已載入高品質 Buffer，防止重複移調
         }
       } catch (err) {
         console.error('[PremiumPitch] Error loading premium pitch shifted buffer:', err);
@@ -644,7 +685,8 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     const p = playerRef.current;
     if (!p) return;
     p.playbackRate = playbackRate;
-    p.detune = detune;
+    // 防禦機制：若已成功載入後端移調後的高品質 Buffer，前端實時變音必須為 0，避免重複疊加變音（防止升半音變升全音）
+    p.detune = isPremiumLoadedRef.current ? 0 : detune;
     
     // 隔離保護：如果當前不是變調器分頁 (isActive === false)，則強制靜音，防止與分離器聲音重疊；否則恢復使用者音量
     if (!isActive) {
