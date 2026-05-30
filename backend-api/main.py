@@ -879,6 +879,31 @@ async def download_youtube(request: DownloadRequest, background_tasks: Backgroun
         message="下載任務已開始"
     )
 
+def get_youtube_title(url: str) -> Optional[str]:
+    """利用 yt-dlp 快速獲取 YouTube 影片的標題"""
+    try:
+        import subprocess
+        import json
+        command = [
+            "yt-dlp",
+            "--dump-json",
+            "--flat-playlist",
+            "--no-warnings",
+            url
+        ]
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=5 # 5 秒超時
+        )
+        if result.returncode == 0:
+            data = json.loads(result.stdout.strip().split('\n')[0])
+            return data.get("title")
+    except Exception as e:
+        print(f"[Backend] Error fetching YouTube title: {e}")
+    return None
+
 @app.post("/api/separate-local", response_model=DownloadResponse)
 async def separate_local(request: SeparateRequest, background_tasks: BackgroundTasks):
     """
@@ -1013,11 +1038,18 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
                 if (output_dir / f"{name}.wav").exists():
                     tracks[name] = f"/files/separated/{job_id}/{name}.wav"
             
+            song_title = audio_path.stem
+            if video_id and youtube_url:
+                print(f"[Backend] Auto-fetching YouTube title for cache-restore: {youtube_url}")
+                fetched_title = get_youtube_title(youtube_url)
+                if fetched_title:
+                    song_title = fetched_title
+            
             song_id = db.create_song_record(
                 job_id=job_id,
                 song_type=song_type,
                 stems=stems,
-                title=audio_path.stem,
+                title=song_title,
                 youtube_url=youtube_url,
                 video_id=video_id,
                 file_path=str(audio_path)
@@ -1036,11 +1068,19 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
     # 7. 快取未命中：建立新歌曲記錄與歷史關聯，開始背景分離
     if not song_id:
         song_type = "youtube" if video_id else "upload"
+        
+        song_title = audio_path.stem
+        if video_id and youtube_url:
+            print(f"[Backend] Auto-fetching YouTube title for new song: {youtube_url}")
+            fetched_title = get_youtube_title(youtube_url)
+            if fetched_title:
+                song_title = fetched_title
+                
         song_id = db.create_song_record(
             job_id=job_id,
             song_type=song_type,
             stems=stems,
-            title=audio_path.stem,
+            title=song_title,
             youtube_url=youtube_url,
             video_id=video_id,
             file_path=str(audio_path)
@@ -1251,6 +1291,25 @@ async def clear_separate_history(username: str):
     try:
         deleted_count = db.clear_user_history(username)
         return {"message": f"成功清除該用戶 {deleted_count} 筆歷史紀錄"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class RenameRequest(BaseModel):
+    username: str
+    job_id: str
+    new_title: str
+
+@app.patch("/api/separate/history/rename")
+async def rename_separate_history_item(request: RenameRequest):
+    """手動修改分離歷史歌曲的標題"""
+    if not request.username or not request.job_id or not request.new_title.strip():
+        raise HTTPException(status_code=400, detail="無效的參數")
+    try:
+        success = db.update_song_status_db(request.job_id, status=None, title=request.new_title.strip())
+        if success:
+            return {"message": "歌名修改成功"}
+        else:
+            raise HTTPException(status_code=404, detail="找不到對應的歌曲")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

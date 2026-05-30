@@ -220,7 +220,7 @@ def clear_user_history(username: str) -> int:
     finally:
         conn.close()
 
-def update_song_status_db(job_id: str, status: str, title: str = None, file_path: str = None, 
+def update_song_status_db(job_id: str, status: str = None, title: str = None, file_path: str = None, 
                           tracks_dict: dict = None, error_message: str = None) -> bool:
     """更新歌曲分離工作的狀態與結果"""
     conn = get_db_connection()
@@ -231,8 +231,12 @@ def update_song_status_db(job_id: str, status: str, title: str = None, file_path
         if not cursor.fetchone():
             return False
             
-        fields = ["status = ?"]
-        params = [status]
+        fields = []
+        params = []
+        
+        if status is not None:
+            fields.append("status = ?")
+            params.append(status)
         
         if title is not None:
             fields.append("title = ?")
@@ -249,6 +253,9 @@ def update_song_status_db(job_id: str, status: str, title: str = None, file_path
         if error_message is not None:
             fields.append("error_message = ?")
             params.append(error_message)
+            
+        if not fields:
+            return True
             
         params.append(job_id)
         query = f"UPDATE songs SET {', '.join(fields)} WHERE job_id = ?"

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     Play, Pause, Loader2, AlertCircle, CheckCircle2,
-    Layers, Download, Volume2, Upload, Music, Trash2, History, RefreshCw
+    Layers, Download, Volume2, Upload, Music, Trash2, History, RefreshCw, Edit2
 } from 'lucide-react';
 import * as Tone from 'tone';
 import { WaveformTrack } from './WaveformTrack';
@@ -170,6 +170,43 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
             }
         } catch (err) {
             console.error('Failed to clear history:', err);
+        }
+    };
+
+    // 手動修改歷史歌曲標題
+    const handleRenameHistory = async (targetJobId: string, currentTitle: string, e: React.MouseEvent) => {
+        e.stopPropagation(); // 防止觸發載入歌曲
+        if (!currentUser) return;
+        
+        const newTitle = window.prompt('請輸入新的歌曲名稱：', currentTitle);
+        if (newTitle === null) return; // 使用者取消
+        
+        const trimmedTitle = newTitle.trim();
+        if (!trimmedTitle) {
+            alert('歌名不能為空！');
+            return;
+        }
+        if (trimmedTitle === currentTitle) return; // 沒有改動
+        
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/separate/history/rename`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: currentUser,
+                    job_id: targetJobId,
+                    new_title: trimmedTitle
+                })
+            });
+            if (response.ok) {
+                fetchHistory();
+            } else {
+                const data = await response.json();
+                alert(data.detail || '修改歌名失敗');
+            }
+        } catch (err) {
+            console.error('Failed to rename history item:', err);
+            alert('連線失敗，請重試');
         }
     };
 
@@ -1052,8 +1089,13 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                                                 <Music size={18} />
                                             </div>
                                             <div className="min-w-0 flex-1">
-                                                <h4 className="text-sm font-bold text-white truncate pr-2" title={item.title}>
-                                                    {item.title || "未命名音訊"}
+                                                <h4 
+                                                    className="text-sm font-bold text-white flex items-center gap-1.5 hover:text-purple-300 transition-colors cursor-pointer group pr-2" 
+                                                    title="點擊修改歌曲名稱"
+                                                    onClick={(e) => handleRenameHistory(item.job_id, item.title || "未命名音訊", e)}
+                                                >
+                                                    <span className="truncate">{item.title || "未命名音訊"}</span>
+                                                    <Edit2 size={12} className="text-gray-500 group-hover:text-purple-400 transition-colors shrink-0" />
                                                 </h4>
                                                 <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-gray-400">
                                                     <span className="bg-gray-850 px-1.5 py-0.5 rounded text-[10px] font-bold text-purple-300 border border-purple-500/10">
