@@ -261,41 +261,42 @@ export default function App() {
                         </div>
                         <h1 className="font-bold text-xl md:text-2xl tracking-tight">Vocal<span className="text-brand-glow">Tune</span> <span className="text-xs align-top text-gray-500 ml-1">{APP_MODE === 'karaoke' ? 'KTV' : APP_MODE === 'main' ? 'Studio' : 'Pro'}</span></h1>
                         {currentUser && (
-                            <span className="ml-2 text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                <User size={12} />
-                                {currentUser}
+                            <span className="ml-2 text-[10px] sm:text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full flex items-center gap-1 max-w-[90px] sm:max-w-none truncate shrink-0 border border-purple-500/10">
+                                <User size={10} className="shrink-0" />
+                                <span className="truncate">{currentUser}</span>
                             </span>
                         )}
                     </div>
-                    <div className="flex items-center gap-2 md:gap-3">
+                    <div className="flex items-center gap-1.5 sm:gap-2.5">
                         {/* 歷史紀錄抽屜按鈕 */}
                         <button
                             onClick={() => currentUser ? setShowHistoryDrawer(true) : setShowLogin(true)}
-                            className="flex items-center gap-1.5 text-xs text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg border border-gray-750 transition-colors font-medium shadow-sm"
+                            className="flex items-center gap-1.5 text-xs text-gray-300 hover:text-white bg-gray-800/60 hover:bg-purple-500/20 px-2.5 py-1.5 sm:px-3 rounded-lg border border-gray-700 hover:border-purple-500/30 transition-all duration-200 font-medium shadow-sm whitespace-nowrap hover:scale-[1.02] active:scale-95"
                             title={currentUser ? "展開歷史分離紀錄" : "請登入以查看歷史紀錄"}
                         >
-                            <History size={13} className="text-purple-400" />
-                            <span>歷史紀錄</span>
+                            <History size={13} className="text-purple-400 shrink-0" />
+                            <span className="hidden sm:inline">歷史紀錄</span>
                         </button>
 
                         {currentUser ? (
                             <button
                                 onClick={handleLogout}
-                                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg border border-gray-750 transition-colors"
+                                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-red-300 bg-gray-800/60 hover:bg-red-950/20 px-2.5 py-1.5 sm:px-3 rounded-lg border border-gray-700 hover:border-red-500/30 transition-all duration-200 whitespace-nowrap hover:scale-[1.02] active:scale-95"
+                                title="登出當前帳號"
                             >
-                                <LogIn size={13} className="rotate-180 text-gray-400" />
-                                <span>切換帳號</span>
+                                <LogIn size={13} className="rotate-180 text-gray-400 shrink-0" />
+                                <span className="hidden sm:inline">切換帳號</span>
                             </button>
                         ) : (
                             <button
                                 onClick={() => setShowLogin(true)}
-                                className="flex items-center gap-1.5 text-xs text-purple-300 hover:text-white bg-purple-950/40 hover:bg-purple-900/50 px-3 py-1.5 rounded-lg border border-purple-500/30 transition-all font-bold shadow-md hover:shadow-purple-500/10"
+                                className="flex items-center gap-1.5 text-xs text-purple-300 hover:text-white bg-purple-950/40 hover:bg-purple-900/50 px-2.5 py-1.5 sm:px-3 rounded-lg border border-purple-500/30 hover:border-purple-400/50 transition-all duration-200 font-bold shadow-md hover:shadow-purple-500/10 whitespace-nowrap hover:scale-[1.02] active:scale-95"
                             >
-                                <User size={13} className="text-purple-400 animate-pulse" />
-                                <span>登入</span>
+                                <User size={13} className="text-purple-400 animate-pulse shrink-0" />
+                                <span className="hidden sm:inline">登入</span>
                             </button>
                         )}
-                        <div className="text-[10px] md:text-xs font-mono text-gray-400 bg-gray-800 px-2 py-1 rounded">v4.0</div>
+                        <div className="text-[9px] sm:text-xs font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded border border-gray-750 shrink-0">v4.0</div>
                     </div>
                 </div>
             </header>
