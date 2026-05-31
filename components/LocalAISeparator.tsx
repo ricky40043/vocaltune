@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     Play, Pause, Loader2, AlertCircle, CheckCircle2,
-    Layers, Download, Volume2, Upload, Music, Trash2, History, RefreshCw, Edit2
+    Layers, Download, Volume2, Upload, Music
 } from 'lucide-react';
 import * as Tone from 'tone';
 import { WaveformTrack } from './WaveformTrack';
@@ -25,6 +24,7 @@ interface LocalAISeparatorProps {
     youtubeUrl?: string;
     onTriggerLogin?: () => void;
     onLoadOriginalAudio?: (url: string) => void;
+    loadedHistoryJob?: any | null; // 來自全域歷史紀錄抽屜載入的任務
 }
 
 export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ 
@@ -33,7 +33,8 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
     currentUser, 
     youtubeUrl,
     onTriggerLogin,
-    onLoadOriginalAudio
+    onLoadOriginalAudio,
+    loadedHistoryJob
 }) => {
     // Local file state
     const [localFileUrl, setLocalFileUrl] = useState<string | null>(null);
@@ -41,9 +42,6 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // AI Separation History states
-    const [historyList, setHistoryList] = useState<any[]>([]);
-    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
     // Isolation: Background Handling
     useEffect(() => {
@@ -85,22 +83,15 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
     // 取得可用的檔案 URL (優先本地上傳，其次來自下載)
     const effectiveFileUrl = localFileUrl || audioFileUrl;
 
-    // 拉取個人歷史紀錄
-    const fetchHistory = useCallback(async () => {
-        if (!currentUser) return;
-        setIsLoadingHistory(true);
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/separate/history?username=${encodeURIComponent(currentUser)}`);
-            if (response.ok) {
-                const data = await response.json();
-                setHistoryList(data);
-            }
-        } catch (e) {
-            console.error('Failed to fetch separation history:', e);
-        } finally {
-            setIsLoadingHistory(false);
+
+
+    // 被動監聽全域歷史紀錄抽屜的載入動作
+    useEffect(() => {
+        if (loadedHistoryJob && loadedHistoryJob.job_id !== jobId) {
+            console.log('[AISeparator] Received loaded history job from global drawer:', loadedHistoryJob.job_id);
+            handleLoadJob(loadedHistoryJob);
         }
-    }, [currentUser]);
+    }, [loadedHistoryJob]);
 
     // 載入歷史紀錄到播放器
     const handleLoadJob = (item: any) => {
@@ -137,109 +128,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    // 刪除個人歷史紀錄
-    const handleDeleteHistory = async (targetJobId: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!currentUser) return;
-        if (!window.confirm('確定要從歷史紀錄中移除此項目嗎？（這不會刪除伺服器快取檔案）')) return;
-        
-        try {
-            const response = await fetch(
-                `${API_BASE_URL}/api/separate/history/${targetJobId}?username=${encodeURIComponent(currentUser)}`,
-                { method: 'DELETE' }
-            );
-            if (response.ok) {
-                fetchHistory();
-                // 如果目前正在播放該工作，進行重置
-                if (jobId === targetJobId) {
-                    handleReset();
-                }
-            }
-        } catch (err) {
-            console.error('Failed to delete history item:', err);
-        }
-    };
 
-    // 清空個人歷史紀錄
-    const handleClearHistory = async () => {
-        if (!currentUser) return;
-        if (!window.confirm('確定要清除您所有的分離歷史紀錄嗎？')) return;
-        
-        try {
-            const response = await fetch(
-                `${API_BASE_URL}/api/separate/history/clear?username=${encodeURIComponent(currentUser)}`,
-                { method: 'POST' }
-            );
-            if (response.ok) {
-                fetchHistory();
-                handleReset();
-            }
-        } catch (err) {
-            console.error('Failed to clear history:', err);
-        }
-    };
-
-    // 手動修改歷史歌曲標題
-    const handleRenameHistory = async (targetJobId: string, currentTitle: string, e: React.MouseEvent) => {
-        e.stopPropagation(); // 防止觸發載入歌曲
-        if (!currentUser) return;
-        
-        const newTitle = window.prompt('請輸入新的歌曲名稱：', currentTitle);
-        if (newTitle === null) return; // 使用者取消
-        
-        const trimmedTitle = newTitle.trim();
-        if (!trimmedTitle) {
-            alert('歌名不能為空！');
-            return;
-        }
-        if (trimmedTitle === currentTitle) return; // 沒有改動
-        
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/separate/history/rename`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    username: currentUser,
-                    job_id: targetJobId,
-                    new_title: trimmedTitle
-                })
-            });
-            if (response.ok) {
-                fetchHistory();
-            } else {
-                const data = await response.json();
-                alert(data.detail || '修改歌名失敗');
-            }
-        } catch (err) {
-            console.error('Failed to rename history item:', err);
-            alert('連線失敗，請重試');
-        }
-    };
-
-    // 元件掛載或用戶變更時載入歷史紀錄
-    useEffect(() => {
-        if (currentUser) {
-            fetchHistory();
-        }
-    }, [currentUser, fetchHistory]);
-
-    // 輪詢歷史紀錄中「進行中」任務的進度
-    useEffect(() => {
-        if (!currentUser || historyList.length === 0) return;
-        
-        // 檢查是否有進行中的工作
-        const hasActiveJobs = historyList.some(item => 
-            ['pending', 'downloading', 'separating'].includes(item.status)
-        );
-        
-        if (!hasActiveJobs) return;
-        
-        const interval = setInterval(() => {
-            fetchHistory();
-        }, 3000);
-        
-        return () => clearInterval(interval);
-    }, [currentUser, historyList, fetchHistory]);
 
     // 斷點續傳進度恢復機制：當更換歌曲或初始化時，自動檢測 localStorage
     useEffect(() => {
@@ -380,8 +269,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                 console.error('Failed to save job to localStorage:', e);
             }
 
-            // 更新歷史紀錄以呈現在歷史列表中
-            fetchHistory();
+
 
             // 若後端返回的 status 已經是 completed (快取命中)，則直接將狀態設為完成
             if (data.status === 'completed') {
@@ -415,7 +303,6 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
                 if (data.status === 'completed' && data.tracks) {
                     setStatus('completed');
-                    fetchHistory();
                     
                     // 同步更新 localStorage 為 completed 狀態
                     if (currentFilePath) {
@@ -433,20 +320,24 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                     // Initialize tracks
                     const initialTracks: Record<string, TrackState> = {};
                     Object.entries(data.tracks).forEach(([name, url]) => {
-                        if (name !== 'original') {
-                            initialTracks[name] = {
-                                url: `${API_BASE_URL}${url}`,
-                                volume: 1,
-                                muted: false,
-                            };
-                        }
+                        // 保留原始音軌（original）供播放器對比，但預設音量設為 0 並靜音，避免直接與分離音軌混音
+                        initialTracks[name] = {
+                            url: `${API_BASE_URL}${url}`,
+                            volume: name === 'original' ? 0 : 1,
+                            muted: name === 'original',
+                        };
                     });
                     setTracks(initialTracks);
+
+                    // 如果包含 original 原始音軌，主動回傳給父層元件，以便變調器 (LocalPlayer) 同步載用該音訊
+                    if (data.tracks.original) {
+                        onLoadOriginalAudio?.(`${API_BASE_URL}${data.tracks.original}`);
+                    }
+
                     clearInterval(pollInterval);
                 } else if (data.status === 'error') {
                     setError(data.error || '處理失敗');
                     setStatus('error');
-                    fetchHistory();
 
                     // 同步更新 localStorage 為 error 狀態
                     if (currentFilePath) {
@@ -1034,166 +925,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                 </div>
             )}
 
-            {/* 分離歷史紀錄 / 登入引導面板 */}
-            <div className="mt-8 bg-gray-900/50 backdrop-blur-md rounded-2xl p-5 md:p-6 border border-purple-500/20 shadow-xl transition-all animate-fade-in">
-                <div className="flex items-center justify-between mb-4 border-b border-gray-800 pb-3">
-                    <div className="flex items-center gap-2 text-purple-400">
-                        <History size={20} />
-                        <h3 className="font-bold text-base md:text-lg text-white">
-                            {currentUser ? "您的個人分離歷史紀錄" : "音軌分離歷史紀錄"}
-                        </h3>
-                    </div>
-                    {currentUser && historyList.length > 0 && (
-                        <button
-                            onClick={handleClearHistory}
-                            className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1.5 rounded-lg transition-colors border border-red-500/20"
-                        >
-                            <Trash2 size={13} />
-                            <span>清除全部</span>
-                        </button>
-                    )}
-                </div>
 
-                {currentUser ? (
-                    // 已登入狀態：顯示資料庫歷史清單
-                    isLoadingHistory && historyList.length === 0 ? (
-                        <div className="py-12 flex flex-col items-center justify-center gap-3">
-                            <Loader2 className="animate-spin text-purple-500" size={32} />
-                            <span className="text-sm text-gray-500">正在載入歷史分離紀錄...</span>
-                        </div>
-                    ) : historyList.length === 0 ? (
-                        <div className="py-12 text-center text-gray-500 flex flex-col items-center justify-center gap-2">
-                            <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center mb-2">
-                                <Music className="text-gray-600" size={20} />
-                            </div>
-                            <p className="text-sm font-medium">尚無歷史分離紀錄</p>
-                            <p className="text-xs text-gray-600">上傳檔案或輸入 YouTube 網址，開始體驗 AI 魔法吧！</p>
-                        </div>
-                    ) : (
-                        <div className="grid gap-3 max-h-[400px] overflow-y-auto pr-1">
-                            {historyList.map((item) => {
-                                const isCompleted = item.status === 'completed';
-                                const isError = item.status === 'error';
-                                const isProcessing = ['pending', 'downloading', 'separating'].includes(item.status);
-                                
-                                return (
-                                    <div
-                                        key={item.job_id}
-                                        onClick={() => isCompleted && handleLoadJob(item)}
-                                        className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border transition-all ${
-                                            isCompleted 
-                                                ? 'bg-gray-800/30 border-gray-700 hover:border-purple-500/50 cursor-pointer hover:bg-gray-800/50' 
-                                                : 'bg-gray-800/10 border-gray-800/50'
-                                        }`}
-                                    >
-                                        <div className="flex items-start gap-3 min-w-0 flex-1">
-                                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                                                isCompleted ? 'bg-purple-500/10 text-purple-400' :
-                                                isError ? 'bg-red-500/10 text-red-400' :
-                                                'bg-blue-500/10 text-blue-400'
-                                            }`}>
-                                                <Music size={18} />
-                                            </div>
-                                            <div className="min-w-0 flex-1">
-                                                <h4 
-                                                    className="text-sm font-bold text-white flex items-center gap-1.5 hover:text-purple-300 transition-colors cursor-pointer group pr-2" 
-                                                    title="點擊修改歌曲名稱"
-                                                    onClick={(e) => handleRenameHistory(item.job_id, item.title || "未命名音訊", e)}
-                                                >
-                                                    <span className="truncate">{item.title || "未命名音訊"}</span>
-                                                    <Edit2 size={12} className="text-gray-500 group-hover:text-purple-400 transition-colors shrink-0" />
-                                                </h4>
-                                                <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-gray-400">
-                                                    <span className="bg-gray-850 px-1.5 py-0.5 rounded text-[10px] font-bold text-purple-300 border border-purple-500/10">
-                                                        {item.stems} 軌
-                                                    </span>
-                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                                        item.song_type === 'youtube' ? 'bg-red-500/10 text-red-400 border border-red-500/10' : 'bg-green-500/10 text-green-400 border border-green-500/10'
-                                                    }`}>
-                                                        {item.song_type === 'youtube' ? 'YouTube' : '本地上傳'}
-                                                    </span>
-                                                    <span className="text-gray-500 text-[10px]">
-                                                        {new Date(item.created_at).toLocaleString('zh-TW', {
-                                                            month: 'numeric',
-                                                            day: 'numeric',
-                                                            hour: '2-digit',
-                                                            minute: '2-digit'
-                                                        })}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex items-center justify-end gap-2.5 mt-3 sm:mt-0 shrink-0">
-                                            {/* Status Badge */}
-                                            {isCompleted && (
-                                                <span className="flex items-center gap-1 text-xs font-bold text-green-400 bg-green-500/10 px-2 py-1 rounded-lg">
-                                                    <CheckCircle2 size={13} />
-                                                    <span>已完成</span>
-                                                </span>
-                                            )}
-                                            {isError && (
-                                                <span className="flex items-center gap-1 text-xs font-bold text-red-400 bg-red-500/10 px-2 py-1 rounded-lg" title={item.error_message}>
-                                                    <AlertCircle size={13} />
-                                                    <span>失敗</span>
-                                                </span>
-                                            )}
-                                            {isProcessing && (
-                                                <span className="flex items-center gap-1 text-xs font-bold text-blue-400 bg-blue-500/10 px-2 py-1 rounded-lg">
-                                                    <Loader2 className="animate-spin text-blue-400" size={13} />
-                                                    <span>分離中...</span>
-                                                </span>
-                                            )}
-
-                                            {/* Action Buttons */}
-                                            {isCompleted && (
-                                                <button
-                                                    onClick={() => handleLoadJob(item)}
-                                                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-all shadow-md active:scale-95 flex items-center gap-0.5"
-                                                >
-                                                    載入
-                                                </button>
-                                            )}
-
-                                            <button
-                                                onClick={(e) => handleDeleteHistory(item.job_id, e)}
-                                                className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 bg-gray-800 hover:bg-red-500/10 transition-colors border border-transparent hover:border-red-500/20"
-                                                title="從歷史紀錄刪除"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )
-                ) : (
-                    // 未登入狀態：溫馨引導登入卡片
-                    <div className="py-8 px-4 text-center max-w-lg mx-auto flex flex-col items-center justify-center gap-4">
-                        <div className="w-14 h-14 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mb-1 animate-pulse">
-                            <History size={24} />
-                        </div>
-                        <div className="space-y-2">
-                            <h4 className="text-base font-bold text-white">想保存與查看您過去的分離歷史紀錄嗎？</h4>
-                            <p className="text-xs md:text-sm text-gray-400 leading-relaxed">
-                                您目前以**未登入**身份使用。您可以自由且無限制地下載並分離音軌，但重新整理網頁後，您的臨時歷史紀錄將會消失。
-                            </p>
-                            <p className="text-[11px] text-purple-300 font-medium bg-purple-500/10 py-2 px-4 rounded-xl border border-purple-500/15 max-w-sm mx-auto leading-normal">
-                                💡 登入您的專屬暱稱，雲端資料庫將會永久為您妥善儲存所有產出紀錄，讓您換裝置或刷新也能一鍵秒速載入！
-                            </p>
-                        </div>
-                        {onTriggerLogin && (
-                            <button
-                                onClick={onTriggerLogin}
-                                className="mt-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-sm shadow-lg shadow-purple-500/25 hover:scale-[1.02] active:scale-95 transition-all"
-                            >
-                                立即登入保存歷史
-                            </button>
-                        )}
-                    </div>
-                )}
-            </div>
         </div>
     );
 };
