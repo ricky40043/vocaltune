@@ -24,7 +24,6 @@ interface LocalAISeparatorProps {
     currentUser?: string | null;
     youtubeUrl?: string;
     onTriggerLogin?: () => void;
-    onLoadOriginalAudio?: (url: string) => void;
     loadedHistoryJob?: any | null; // 來自全域歷史紀錄抽屜載入的任務
 }
 
@@ -34,7 +33,6 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
     currentUser, 
     youtubeUrl,
     onTriggerLogin,
-    onLoadOriginalAudio,
     loadedHistoryJob
 }) => {
     // Local file state
@@ -48,10 +46,6 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
     useEffect(() => {
         if (!isActive) {
             setIsPlaying(false);
-        } else {
-            // 當切換回分離器分頁時，強制同步播放狀態與進度時間，確保 UI 按鈕與實際播放狀態完美對應
-            setIsPlaying(Tone.Transport.state === 'started');
-            setCurrentTime(Tone.Transport.seconds);
         }
     }, [isActive]);
     // Job state
@@ -80,11 +74,44 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
     const playersRef = useRef<Record<string, Tone.Player> | null>(null);
     const volumeNodesRef = useRef<Record<string, Tone.Volume>>({});
     const animationRef = useRef<number | null>(null);
+    const playbackStartedAtRef = useRef(0);
+    const playbackOffsetRef = useRef(0);
 
     // 取得可用的檔案 URL (優先本地上傳，其次來自下載)
     const effectiveFileUrl = localFileUrl || audioFileUrl;
 
+    const stopStemPlayers = useCallback(() => {
+        if (!playersRef.current) return;
+        Object.values(playersRef.current).forEach((player: any) => {
+            try {
+                player.stop();
+            } catch (err) {}
+        });
+    }, []);
 
+    const startStemPlayers = useCallback((offset: number) => {
+        if (!playersRef.current) return;
+        Object.values(playersRef.current).forEach((player: any) => {
+            try {
+                player.stop();
+                player.start(undefined, offset);
+            } catch (err) {
+                console.warn('[AISeparator] Failed to start stem player:', err);
+            }
+        });
+    }, []);
+
+    useEffect(() => {
+        if (isActive) return;
+
+        stopStemPlayers();
+        playbackOffsetRef.current = currentTime;
+        if (animationRef.current) {
+            cancelAnimationFrame(animationRef.current);
+            animationRef.current = null;
+        }
+        setIsPlaying(false);
+    }, [isActive, currentTime, stopStemPlayers]);
 
     // 被動監聽全域歷史紀錄抽屜的載入動作
     useEffect(() => {
@@ -92,15 +119,19 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
             console.log('[AISeparator] Received loaded history job from global drawer:', loadedHistoryJob.job_id);
             handleLoadJob(loadedHistoryJob);
         }
-    }, [loadedHistoryJob]);
+    }, [loadedHistoryJob, jobId]);
 
     // 載入歷史紀錄到播放器
     const handleLoadJob = (item: any) => {
         if (!item.tracks) return;
         
         // 停止之前的播放
-        Tone.Transport.stop();
-        Tone.Transport.cancel();
+        stopStemPlayers();
+        if (animationRef.current) {
+            cancelAnimationFrame(animationRef.current);
+            animationRef.current = null;
+        }
+        playbackOffsetRef.current = 0;
         setIsPlaying(false);
         setCurrentTime(0);
         
@@ -120,11 +151,6 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         setStatus('completed');
         setError(null);
 
-        // 如果包含 original 原始音軌，主動回傳給父層元件，以便變調器 (LocalPlayer) 同步載用該音訊
-        if (item.tracks.original) {
-            onLoadOriginalAudio?.(`${API_BASE_URL}${item.tracks.original}`);
-        }
-        
         // 捲動至頂部播放器以優化體驗
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -330,11 +356,6 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                     });
                     setTracks(initialTracks);
 
-                    // 如果包含 original 原始音軌，主動回傳給父層元件，以便變調器 (LocalPlayer) 同步載用該音訊
-                    if (data.tracks.original) {
-                        onLoadOriginalAudio?.(`${API_BASE_URL}${data.tracks.original}`);
-                    }
-
                     clearInterval(pollInterval);
                 } else if (data.status === 'error') {
                     setError(data.error || '處理失敗');
@@ -407,8 +428,8 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
             Object.values(volumeNodesRef.current).forEach((n: any) => n.dispose());
             volumeNodesRef.current = {};
 
-            Tone.Transport.stop();
-            Tone.Transport.seconds = 0;
+            stopStemPlayers();
+            playbackOffsetRef.current = 0;
             setCurrentTime(0);
 
             const trackEntries = Object.entries(tracks);
@@ -419,11 +440,6 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
             const total = trackEntries.length;
 
             const onAllLoaded = () => {
-                // Sync all players to Transport
-                Object.keys(playerMap).forEach(name => {
-                    playerMap[name].sync().start(0);
-                });
-
                 // Set duration from vocals or first track
                 const durationKey = playerMap['vocals'] ? 'vocals' : Object.keys(playerMap)[0];
                 if (durationKey) setDuration(playerMap[durationKey].buffer.duration);
@@ -498,31 +514,37 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         const toneReady = Tone.start(); // synchronous call within gesture handler (iOS requirement)
 
         if (isPlaying) {
-            Tone.Transport.pause();
+            stopStemPlayers();
+            playbackOffsetRef.current = currentTime;
             setIsPlaying(false);
             if (animationRef.current) {
                 cancelAnimationFrame(animationRef.current);
+                animationRef.current = null;
             }
         } else {
             await toneReady;
-            Tone.Transport.start();
+            const startOffset = Math.min(currentTime, Math.max(duration - 0.01, 0));
+            playbackOffsetRef.current = startOffset;
+            playbackStartedAtRef.current = Tone.now();
+            startStemPlayers(startOffset);
             setIsPlaying(true);
 
             // Start UI Update Loop
             const updateTime = () => {
-                setCurrentTime(Tone.Transport.seconds);
+                const elapsed = Tone.now() - playbackStartedAtRef.current;
+                const nextTime = playbackOffsetRef.current + elapsed;
+                setCurrentTime(nextTime);
 
-                if (Tone.Transport.seconds >= duration && duration > 0) {
-                    Tone.Transport.pause();
-                    Tone.Transport.seconds = 0;
+                if (nextTime >= duration && duration > 0) {
+                    stopStemPlayers();
+                    playbackOffsetRef.current = 0;
                     setIsPlaying(false);
                     setCurrentTime(0);
+                    animationRef.current = null;
                     return;
                 }
 
-                if (Tone.Transport.state === 'started') {
-                    animationRef.current = requestAnimationFrame(updateTime);
-                }
+                animationRef.current = requestAnimationFrame(updateTime);
             };
             updateTime();
         }
@@ -535,8 +557,15 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
     // Handle seek
     const handleSeek = (newTime: number) => {
-        setCurrentTime(newTime);
-        Tone.Transport.seconds = newTime;
+        const targetTime = Math.min(Math.max(newTime, 0), duration || newTime);
+        setCurrentTime(targetTime);
+        playbackOffsetRef.current = targetTime;
+
+        if (isPlaying) {
+            stopStemPlayers();
+            playbackStartedAtRef.current = Tone.now();
+            startStemPlayers(targetTime);
+        }
     };
 
     // Toggle mute
@@ -575,8 +604,12 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
     // Reset
     const handleReset = () => {
-        Tone.Transport.stop();
-        Tone.Transport.seconds = 0;
+        stopStemPlayers();
+        playbackOffsetRef.current = 0;
+        if (animationRef.current) {
+            cancelAnimationFrame(animationRef.current);
+            animationRef.current = null;
+        }
         if (playersRef.current) {
             Object.values(playersRef.current).forEach((p: any) => p.dispose());
             playersRef.current = null;
@@ -652,18 +685,16 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         }
     };
 
-    // Isolation: Cleanup Transport on mount/unmount
+    // Isolation: cleanup only this separator's players; do not touch Tone.Transport used by other tools.
     useEffect(() => {
-        // Stop any previous playback
-        Tone.Transport.stop();
-        Tone.Transport.cancel();
-
         return () => {
-            // Cleanup on leave
-            Tone.Transport.stop();
-            Tone.Transport.cancel();
+            stopStemPlayers();
+            if (animationRef.current) {
+                cancelAnimationFrame(animationRef.current);
+                animationRef.current = null;
+            }
         };
-    }, []);
+    }, [stopStemPlayers]);
 
     return (
         <div className="space-y-4">

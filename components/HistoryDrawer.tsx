@@ -7,6 +7,7 @@ import {
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
     ? (import.meta as any).env.VITE_API_URL
     : '';
+const TAIPEI_TIME_ZONE = 'Asia/Taipei';
 
 interface HistoryDrawerProps {
     isOpen: boolean;
@@ -123,24 +124,58 @@ export const HistoryDrawer: React.FC<HistoryDrawerProps> = ({
         onClose(); // 選完自動收回抽屜，優化使用者體驗
     };
 
+    const parseHistoryTimestamp = (dateStr: string) => {
+        const trimmed = dateStr?.trim();
+        if (!trimmed) return null;
+
+        // SQLite CURRENT_TIMESTAMP is UTC, but returns "YYYY-MM-DD HH:mm:ss" without a timezone suffix.
+        const hasTimeZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
+        const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
+        const date = new Date(hasTimeZone ? normalized : `${normalized}Z`);
+
+        return Number.isNaN(date.getTime()) ? null : date;
+    };
+
+    const getTaipeiDateParts = (date: Date) => {
+        const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: TAIPEI_TIME_ZONE,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        }).formatToParts(date);
+
+        const getPart = (type: string) => parts.find((part) => part.type === type)?.value || '';
+
+        return {
+            year: getPart('year'),
+            month: getPart('month'),
+            day: getPart('day'),
+            hour: getPart('hour'),
+            minute: getPart('minute')
+        };
+    };
+
     // 格式化日期顯示
     const formatDate = (dateStr: string) => {
         try {
-            const date = new Date(dateStr);
-            const now = new Date();
-            const isToday = date.toDateString() === now.toDateString();
+            const date = parseHistoryTimestamp(dateStr);
+            if (!date) return dateStr;
+
+            const dateParts = getTaipeiDateParts(date);
+            const nowParts = getTaipeiDateParts(new Date());
+            const isToday =
+                dateParts.year === nowParts.year &&
+                dateParts.month === nowParts.month &&
+                dateParts.day === nowParts.day;
             
             if (isToday) {
-                const hours = date.getHours().toString().padStart(2, '0');
-                const minutes = date.getMinutes().toString().padStart(2, '0');
-                return `今天 ${hours}:${minutes}`;
+                return `今天 ${dateParts.hour}:${dateParts.minute}`;
             }
             
-            const month = (date.getMonth() + 1).toString().padStart(2, '0');
-            const day = date.getDate().toString().padStart(2, '0');
-            const hours = date.getHours().toString().padStart(2, '0');
-            const minutes = date.getMinutes().toString().padStart(2, '0');
-            return `${month}/${day} ${hours}:${minutes}`;
+            return `${dateParts.month}/${dateParts.day} ${dateParts.hour}:${dateParts.minute}`;
         } catch (e) {
             return dateStr;
         }

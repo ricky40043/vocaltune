@@ -35,6 +35,14 @@ const getApiErrorMessage = (error: unknown) => {
     return error instanceof Error ? error.message : '連線失敗，請確認後端服務已啟動';
 };
 
+const resolveAudioUrl = (fileUrl: string | null) => {
+    if (!fileUrl) return undefined;
+    if (fileUrl.startsWith('blob:') || fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+        return fileUrl;
+    }
+    return `${API_BASE_URL}${fileUrl}`;
+};
+
 type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber' | 'karaoke' | 'request';
 
 export default function App() {
@@ -134,6 +142,8 @@ export default function App() {
     const [downloadProgress, setDownloadProgress] = useState(0);
     const [downloadMessage, setDownloadMessage] = useState('');
     const [downloadedFileUrl, setDownloadedFileUrl] = useState<string | null>(null);
+    const [pitcherFileUrl, setPitcherFileUrl] = useState<string | null>(null);
+    const [splitterFileUrl, setSplitterFileUrl] = useState<string | null>(null);
     const [downloadedSourceVideoId, setDownloadedSourceVideoId] = useState<string | null>(null);
     const [showRedownloadBanner, setShowRedownloadBanner] = useState(false);
 
@@ -171,6 +181,8 @@ export default function App() {
         setDownloadProgress(0);
         setDownloadMessage('正在啟動下載...');
         setDownloadedFileUrl(null);
+        setPitcherFileUrl(null);
+        setSplitterFileUrl(null);
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/download`, {
@@ -209,6 +221,8 @@ export default function App() {
                     if (statusData.status === 'completed') {
                         setDownloadStatus('completed');
                         setDownloadedFileUrl(statusData.file_url);
+                        setPitcherFileUrl(statusData.file_url || null);
+                        setSplitterFileUrl(statusData.file_url || null);
                         setDownloadedSourceVideoId(videoId);
                         setShowRedownloadBanner(false);
                         clearInterval(pollInterval);
@@ -549,8 +563,9 @@ export default function App() {
                                             const url = URL.createObjectURL(file);
                                             setUrl(''); // Clear YouTube URL to avoid state pollution
                                             setUrlError(null);
-                                            setDownloadedFileUrl(null); // Clear download URL
                                             setDownloadedFileUrl(url);
+                                            setPitcherFileUrl(url);
+                                            setSplitterFileUrl(url);
                                             setActiveTab('pitcher');
                                         }
                                     }}
@@ -585,10 +600,10 @@ export default function App() {
                 {/* TAB 2: PITCHER - 變調器 */}
                 <div style={{ display: activeTab === 'pitcher' ? 'block' : 'none' }} className="animate-fade-in max-w-4xl mx-auto">
                     <LocalPlayer
-                        audioFileUrl={downloadedFileUrl ? (downloadedFileUrl.startsWith('blob:') ? downloadedFileUrl : `${API_BASE_URL}${downloadedFileUrl}`) : undefined}
+                        audioFileUrl={resolveAudioUrl(pitcherFileUrl)}
                         onFileLoaded={(file) => {
                             const url = URL.createObjectURL(file);
-                            setDownloadedFileUrl(url);
+                            setPitcherFileUrl(url);
                         }}
                         isActive={activeTab === 'pitcher'}
                     />
@@ -597,16 +612,11 @@ export default function App() {
                 {/* TAB 3: SPLITTER - 分離器 */}
                 <div style={{ display: activeTab === 'splitter' ? 'block' : 'none' }} className="animate-fade-in space-y-4 max-w-5xl mx-auto">
                     <LocalAISeparator
-                        audioFileUrl={downloadedFileUrl ? (downloadedFileUrl.startsWith('blob:') ? downloadedFileUrl : `${API_BASE_URL}${downloadedFileUrl}`) : undefined}
+                        audioFileUrl={resolveAudioUrl(splitterFileUrl)}
                         isActive={activeTab === 'splitter'}
                         currentUser={currentUser}
-                        youtubeUrl={downloadedFileUrl && !downloadedFileUrl.startsWith('blob:') ? (url && !urlError ? url : undefined) : undefined}
+                        youtubeUrl={splitterFileUrl && !splitterFileUrl.startsWith('blob:') ? (url && !urlError ? url : undefined) : undefined}
                         onTriggerLogin={() => setShowLogin(true)}
-                        onLoadOriginalAudio={(audioUrl) => {
-                            // 當從分離歷史紀錄載入歌曲時，同步更新下載的原始音訊檔案 URL
-                            // 藉此讓變調器 (LocalPlayer) 也能同步加載這首原始音訊！
-                            setDownloadedFileUrl(audioUrl);
-                        }}
                         loadedHistoryJob={loadedHistoryJob}
                     />
                 </div>
@@ -614,7 +624,7 @@ export default function App() {
                 {/* TAB 4: TRANSCRIBER - 採譜 */}
                 <div style={{ display: activeTab === 'transcriber' ? 'block' : 'none' }} className="animate-fade-in space-y-4 max-w-4xl mx-auto">
                     <MidiTranscriber
-                        audioFileUrl={downloadedFileUrl ? (downloadedFileUrl.startsWith('blob:') ? downloadedFileUrl : `${API_BASE_URL}${downloadedFileUrl}`) : undefined}
+                        audioFileUrl={resolveAudioUrl(downloadedFileUrl)}
                     />
                 </div>
 
