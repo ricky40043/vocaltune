@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Music, Download, Upload, ExternalLink, Layers, Youtube, FileAudio, ArrowRight, AlertTriangle, CheckCircle2, Search, Disc, Loader2, Music2, SplitSquareVertical, FileMusic, LogIn, User, Zap } from 'lucide-react';
+import { Music, Download, Upload, ExternalLink, Layers, Youtube, FileAudio, ArrowRight, AlertTriangle, CheckCircle2, Search, Disc, Loader2, Music2, SplitSquareVertical, FileMusic, LogIn, User, Zap, History } from 'lucide-react';
 import { getYouTubeID } from './utils/youtube';
 import { LocalPlayer } from './components/LocalPlayer';
 import { LocalAISeparator } from './components/LocalAISeparator';
+import { HistoryDrawer } from './components/HistoryDrawer';
 import { Pitcher } from './components/Pitcher';
 
 import { MidiTranscriber } from './components/MidiTranscriber';
@@ -116,6 +117,10 @@ export default function App() {
     const [downloadedFileUrl, setDownloadedFileUrl] = useState<string | null>(null);
     const [downloadedSourceVideoId, setDownloadedSourceVideoId] = useState<string | null>(null);
     const [showRedownloadBanner, setShowRedownloadBanner] = useState(false);
+
+    // 歷史紀錄抽屜狀態
+    const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
+    const [loadedHistoryJob, setLoadedHistoryJob] = useState<any | null>(null);
 
     const handleUrlCheck = (e?: React.FormEvent) => {
         if (e) e.preventDefault();
@@ -262,7 +267,17 @@ export default function App() {
                             </span>
                         )}
                     </div>
-                    <div className="flex items-center gap-2 md:gap-4">
+                    <div className="flex items-center gap-2 md:gap-3">
+                        {/* 歷史紀錄抽屜按鈕 */}
+                        <button
+                            onClick={() => currentUser ? setShowHistoryDrawer(true) : setShowLogin(true)}
+                            className="flex items-center gap-1.5 text-xs text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg border border-gray-750 transition-colors font-medium shadow-sm"
+                            title={currentUser ? "展開歷史分離紀錄" : "請登入以查看歷史紀錄"}
+                        >
+                            <History size={13} className="text-purple-400" />
+                            <span>歷史紀錄</span>
+                        </button>
+
                         {currentUser ? (
                             <button
                                 onClick={handleLogout}
@@ -277,7 +292,7 @@ export default function App() {
                                 className="flex items-center gap-1.5 text-xs text-purple-300 hover:text-white bg-purple-950/40 hover:bg-purple-900/50 px-3 py-1.5 rounded-lg border border-purple-500/30 transition-all font-bold shadow-md hover:shadow-purple-500/10"
                             >
                                 <User size={13} className="text-purple-400 animate-pulse" />
-                                <span>登入儲存歷史</span>
+                                <span>登入</span>
                             </button>
                         )}
                         <div className="text-[10px] md:text-xs font-mono text-gray-400 bg-gray-800 px-2 py-1 rounded">v4.0</div>
@@ -559,6 +574,7 @@ export default function App() {
                             // 藉此讓變調器 (LocalPlayer) 也能同步加載這首原始音訊！
                             setDownloadedFileUrl(audioUrl);
                         }}
+                        loadedHistoryJob={loadedHistoryJob}
                     />
                 </div>
 
@@ -587,6 +603,16 @@ export default function App() {
                 </div>
 
             </main >
+
+            {/* 全域右側滑出分離歷史紀錄抽屜 */}
+            <HistoryDrawer
+                isOpen={showHistoryDrawer}
+                onClose={() => setShowHistoryDrawer(false)}
+                currentUser={currentUser}
+                onLoadJob={(item) => {
+                    setLoadedHistoryJob(item);
+                }}
+            />
         </div >
     );
 }
