@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as Tone from 'tone';
 import { Play, Pause, Upload, AlertCircle, Loader2, Music, Zap, Volume2, Mic, MicOff, Sliders, Activity, Layers, ArrowRight, RotateCcw, Repeat, Plus, Minus, Download, Save, Hand } from 'lucide-react';
 import { ControlSlider } from './ControlSlider';
+import { getGrainSettings } from '../utils/audioQuality';
 
 const NOTES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 
@@ -222,7 +223,12 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   const originalBufferRef = useRef<AudioBuffer | null>(null); // 保存原始完美的音訊 buffer
   const silentAudioRef = useRef<HTMLAudioElement | null>(null); // 背景隱藏原生 Audio 標籤以繞過 iOS 靜音鍵
   const isPremiumLoadedRef = useRef(false); // 標記目前載入的是否是高品質變調檔
+  const currentDetuneRef = useRef(0); // async premium requests use this to avoid stale swaps
   const localUploadedPathRef = useRef<string | null>(null); // 快取本地檔案自動上傳後的伺服器路徑
+
+  useEffect(() => {
+    currentDetuneRef.current = detune;
+  }, [detune]);
 
   useEffect(() => {
     const initAudio = async () => {
@@ -336,16 +342,18 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         // Unwrap Tone.Buffer (Reverting to v1 logic: 988cd6a)
         // Unwrap Tone.Buffer (Reverting to v1 logic: 988cd6a)
         // const toneBuffer = new Tone.Buffer(audioBuffer); 
+        const initialGrainSettings = getGrainSettings(0, 'original');
         const newPlayer = new Tone.GrainPlayer({
           url: audioBuffer,
-          grainSize: 0.1,  // 優化顆粒大小，減少金屬碎裂感
-          overlap: 0.05,   // 提供平滑過渡
+          grainSize: initialGrainSettings.grainSize,
+          overlap: initialGrainSettings.overlap,
           loop: false
-        }).toDestination();
+        });
 
-        // Connect nodes
         if (eqRef.current) {
           newPlayer.connect(eqRef.current);
+        } else {
+          newPlayer.toDestination();
         }
 
         Tone.Transport.seconds = 0;
@@ -362,7 +370,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         setIsLoaded(true);
 
         newPlayer.playbackRate = playbackRate;
-        newPlayer.detune = detune;
+        newPlayer.detune = 0;
         newPlayer.volume.value = volume;
 
         // Analyze BPM and Key in parallel (skip for blob URLs — backend can't access them)
@@ -413,28 +421,27 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   useEffect(() => {
     if (!player || !audioFileUrl) return;
 
-    // 拉拉桿調整音調的第一時間，我們退回實時預聽狀態，標記 isPremiumLoadedRef 為 false
-    isPremiumLoadedRef.current = false;
-
     if (detune === 0) {
-      // 歸零時，直接無縫將 Buffer 還原為最完美的原始無損音源
+      // 歸零時才還原原始無損音源；非 0 之間切換時保留上一個 premium key，避免先跳回原 key。
       if (originalBufferRef.current) {
+        const currentSeconds = Tone.Transport.seconds;
+        const targetVolume = player.volume.value;
+        player.volume.rampTo(-Infinity, 0.02);
         player.buffer.set(originalBufferRef.current);
+        Tone.Transport.seconds = currentSeconds;
         player.detune = 0;
+        player.volume.rampTo(targetVolume, 0.06);
       }
+      isPremiumLoadedRef.current = false;
       setIsPremiumLoading(false);
       return;
     }
 
-    // ================= 實時 0 延遲變調同步 (音高基準線對齊) =================
-    // 拖曳拉桿的第一時間：將播放器 Buffer 還原至原始無損音源，並同步 player.detune = detune。
-    // 這保證了拖曳時的音高調整能即時、零延遲地發生，且音高基準 100% 準確，絕不重複疊加變音！
-    if (originalBufferRef.current) {
-      player.buffer.set(originalBufferRef.current);
-    }
-    player.detune = detune;
+    // 前端不再做即時變調預聽，避免 Tone.GrainPlayer 與後端高品質變調產生音高差。
+    // 非 0 Key 之間切換時，先保留目前正在播放的 buffer，等新 premium 檔完成再切換。
+    player.detune = 0;
 
-    // 我們使用 600ms 的 Debounce 防震動，停下來才向後端請求高品質無損檔
+    // 前端不做變調預聽，所以縮短 debounce，讓後端正確 Key 更快套用。
     const timer = setTimeout(async () => {
       const semitones = detune / 100;
       let filePathToSend = audioFileUrl;
@@ -493,20 +500,34 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         const audioBuffer = await Tone.context.decodeAudioData(ab);
         
         // 確保加載完成後，使用者沒有再次調整音調 (狀態依然吻合)
-        if (detune === semitones * 100 && player) {
+        if (currentDetuneRef.current === semitones * 100 && player) {
           console.log(`[PremiumPitch] Seamlessly replacing player buffer with premium version!`);
-          // 無縫替換播放器的音訊 Buffer，播放時間不受任何干擾，完美無缺
-          player.buffer.set(audioBuffer);
-          // 將實時變音歸零，因為後端回傳的高品質檔已經是移好音高的了，前端此時不需要再次變調！
-          player.detune = 0; 
-          isPremiumLoadedRef.current = true; // 標記為已載入高品質 Buffer，防止重複移調
+          const currentSeconds = Tone.Transport.seconds;
+          const targetVolume = player.volume.value;
+
+          // 換 buffer 時短暫淡出，避免 Tone.GrainPlayer 在交界點爆一下。
+          player.volume.rampTo(-Infinity, 0.03);
+          setTimeout(() => {
+            if (currentDetuneRef.current !== semitones * 100 || !playerRef.current) {
+              player.volume.rampTo(targetVolume, 0.05);
+              return;
+            }
+            player.buffer.set(audioBuffer);
+            // 將實時變音歸零，因為後端回傳的高品質檔已經是移好音高的了，前端此時不需要再次變調！
+            player.detune = 0;
+            Tone.Transport.seconds = currentSeconds;
+            player.volume.rampTo(targetVolume, 0.08);
+            isPremiumLoadedRef.current = true; // 標記為已載入高品質 Buffer，防止重複移調
+          }, 40);
         }
       } catch (err) {
         console.error('[PremiumPitch] Error loading premium pitch shifted buffer:', err);
       } finally {
-        setIsPremiumLoading(false);
+        if (currentDetuneRef.current === semitones * 100) {
+          setIsPremiumLoading(false);
+        }
       }
-    }, 600); // 600ms Debounce
+    }, 250); // Debounce rapid +/- clicks
 
     return () => clearTimeout(timer);
   }, [detune, audioFileUrl, player]);
@@ -685,8 +706,8 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     const p = playerRef.current;
     if (!p) return;
     p.playbackRate = playbackRate;
-    // 防禦機制：若已成功載入後端移調後的高品質 Buffer，前端實時變音必須為 0，避免重複疊加變音（防止升半音變升全音）
-    p.detune = isPremiumLoadedRef.current ? 0 : detune;
+    // 前端永遠不再疊加 detune；升降 Key 只由後端 premium buffer 決定，避免半音變全音。
+    p.detune = 0;
     
     // 隔離保護：如果當前不是變調器分頁 (isActive === false)，則強制靜音，防止與分離器聲音重疊；否則恢復使用者音量
     if (!isActive) {

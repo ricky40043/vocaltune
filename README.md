@@ -27,7 +27,7 @@
 2. 安裝依賴: `pip install -r requirements.txt` (建議使用 venv)。
 3. 安裝額外工具: `pip install demucs yt-dlp`。
 4. 確保系統已安裝 `ffmpeg`。
-5. 啟動: `uvicorn main:app --reload`
+5. 啟動: `uvicorn main:app --host 127.0.0.1 --port 8050 --reload`
 
 ### 前端 (React)
 1. 在專案根目錄執行 `npm install`。

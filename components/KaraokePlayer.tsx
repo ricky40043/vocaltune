@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, Loader2, Upload, Download, Mic, Youtube, MicOff, SkipForward, Plus, Minus, Music } from 'lucide-react';
 import * as Tone from 'tone';
+import { getGrainSettings } from '../utils/audioQuality';
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
@@ -303,10 +304,11 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
 
                 // Create ToneAudioBuffer from decoded data
                 const toneVideoBuffer = new Tone.ToneAudioBuffer(decodedVideo);
+                const initialStemGrainSettings = getGrainSettings(pitchSemitones * 100, 'stem');
                 const videoGrain = new Tone.GrainPlayer({
                     url: toneVideoBuffer,
-                    grainSize: 0.2,
-                    overlap: 0.05,
+                    grainSize: initialStemGrainSettings.grainSize,
+                    overlap: initialStemGrainSettings.overlap,
                     loop: false,
                 });
 
@@ -329,8 +331,8 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                         const toneVocalsBuffer = new Tone.ToneAudioBuffer(decodedVocals);
                         const vocalsGrain = new Tone.GrainPlayer({
                             url: toneVocalsBuffer,
-                            grainSize: 0.2,
-                            overlap: 0.05,
+                            grainSize: initialStemGrainSettings.grainSize,
+                            overlap: initialStemGrainSettings.overlap,
                             loop: false,
                         });
                         vocalsGrain.volume.value = -Infinity; // Init based on playVocals? Handled by effect
@@ -457,11 +459,16 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
             }
 
             // Enable GrainPlayers
+            const grainSettings = getGrainSettings(pitchSemitones * 100, 'stem');
             if (videoGrainRef.current) {
+                videoGrainRef.current.grainSize = grainSettings.grainSize;
+                videoGrainRef.current.overlap = grainSettings.overlap;
                 videoGrainRef.current.detune = pitchSemitones * 100;
                 videoGrainRef.current.volume.value = -4;
             }
             if (vocalsGrainRef.current) {
+                vocalsGrainRef.current.grainSize = grainSettings.grainSize;
+                vocalsGrainRef.current.overlap = grainSettings.overlap;
                 vocalsGrainRef.current.detune = pitchSemitones * 100;
                 vocalsGrainRef.current.volume.value = playVocals ? -4 : -Infinity;
             }

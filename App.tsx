@@ -15,6 +15,25 @@ const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any)
     ? (import.meta as any).env.VITE_API_URL
     : ''; // Default to relative path (assumes proxy)
 
+const readApiJson = async <T,>(response: Response): Promise<T> => {
+    const text = await response.text();
+    if (!text.trim()) {
+        throw new Error(response.ok ? '後端回應空白' : '後端服務沒有回應，請確認 API 服務已啟動');
+    }
+
+    try {
+        return JSON.parse(text) as T;
+    } catch {
+        throw new Error(response.ok ? '後端回應格式錯誤' : '後端服務暫時無法連線，請確認 API 服務已啟動');
+    }
+};
+
+const getApiErrorMessage = (error: unknown) => {
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+        return '後端服務無法連線，請確認 API 服務已啟動';
+    }
+    return error instanceof Error ? error.message : '連線失敗，請確認後端服務已啟動';
+};
 
 type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber' | 'karaoke' | 'request';
 
@@ -161,18 +180,28 @@ export default function App() {
             });
 
             if (!response.ok) {
-                const data = await response.json();
+                const data = await readApiJson<{ detail?: string }>(response);
                 throw new Error(data.detail || '下載任務建立失敗');
             }
 
-            const data = await response.json();
+            const data = await readApiJson<{ job_id: string }>(response);
             setDownloadJobId(data.job_id);
 
             // Poll for status
             const pollInterval = setInterval(async () => {
                 try {
                     const statusRes = await fetch(`${API_BASE_URL}/api/status/${data.job_id}`);
-                    const statusData = await statusRes.json();
+                    if (!statusRes.ok) {
+                        const errorData = await readApiJson<{ detail?: string }>(statusRes);
+                        throw new Error(errorData.detail || '讀取下載狀態失敗');
+                    }
+                    const statusData = await readApiJson<{
+                        status?: string;
+                        progress?: number;
+                        message?: string;
+                        file_url?: string;
+                        error?: string;
+                    }>(statusRes);
 
                     setDownloadProgress(statusData.progress || 0);
                     setDownloadMessage(statusData.message || '');
@@ -190,11 +219,14 @@ export default function App() {
                     }
                 } catch (err) {
                     console.error('Status polling error:', err);
+                    setDownloadStatus('error');
+                    setUrlError(getApiErrorMessage(err));
+                    clearInterval(pollInterval);
                 }
             }, 1500);
         } catch (err) {
             setDownloadStatus('error');
-            setUrlError(err instanceof Error ? err.message : '連線失敗，請確認後端服務已啟動');
+            setUrlError(getApiErrorMessage(err));
         }
     };
 

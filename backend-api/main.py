@@ -1637,9 +1637,10 @@ def pitch_shift_premium(request: PitchShiftRequest):
     if abs(semitones) < 0.01:
         return {"status": "success", "file_url": request.file_path}
         
-    # 2. 生成快取檔名 (格式: {原檔名}_pitch_{semitones}.wav)
+    # 2. 生成快取檔名 (格式: {原檔名}_pitch_v2_{semitones}.wav)
+    # v2 避開舊版 mono/峰值未保護的快取檔，避免繼續回傳會爆音的舊結果。
     job_id = audio_path.parent.name if audio_path.parent != DOWNLOADS_DIR else "downloads"
-    output_filename = f"{audio_path.stem}_pitch_{semitones:.1f}.wav"
+    output_filename = f"{audio_path.stem}_pitch_v2_{semitones:.1f}.wav"
     output_path = audio_path.parent / output_filename
     
     # URL 格式
@@ -1655,13 +1656,24 @@ def pitch_shift_premium(request: PitchShiftRequest):
         
     # 4. 進行高品質變調 (Librosa + SoundFile)
     try:
+        import numpy as np
         print(f"[PitchShift] Shifting {audio_path} by {semitones} semitones using Librosa...")
         
-        # 載入原檔 (sr=None 保持原生採樣率確保極致品質)
-        y, sr = librosa.load(str(audio_path), sr=None)
+        # 載入原檔：sr=None 保持原生採樣率，mono=False 保留立體聲與聲像
+        y, sr = librosa.load(str(audio_path), sr=None, mono=False)
         
         # 使用 librosa.effects.pitch_shift 高品質變調
         y_shifted = librosa.effects.pitch_shift(y=y, sr=sr, n_steps=semitones)
+
+        # 避免變調後峰值比原檔更高造成瞬間爆音
+        original_peak = float(np.max(np.abs(y))) if y.size else 0.0
+        shifted_peak = float(np.max(np.abs(y_shifted))) if y_shifted.size else 0.0
+        if original_peak > 0 and shifted_peak > original_peak:
+            y_shifted = y_shifted * (original_peak / shifted_peak)
+
+        # librosa multi-channel: (channels, samples); soundfile expects (samples, channels)
+        if getattr(y_shifted, "ndim", 1) == 2:
+            y_shifted = y_shifted.T
         
         # 寫入目標檔案
         sf.write(str(output_path), y_shifted, sr)
