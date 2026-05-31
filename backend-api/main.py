@@ -816,6 +816,13 @@ async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
                     shutil.copy(track_file, dest_path)
                     tracks[track_name] = f"/files/separated/{job_id}/{track_name}.wav"
         
+        # 額外加入 original 原始音軌，供前端載入或對比使用
+        original_filename = Path(audio_path).name
+        if "downloads" in str(audio_path):
+            tracks["original"] = f"/files/downloads/{original_filename}"
+        else:
+            tracks["original"] = f"/files/separated/{job_id}/{original_filename}"
+
         if not tracks:
             raise Exception("分離完成但找不到任何音軌")
         

@@ -24,6 +24,7 @@ interface LocalAISeparatorProps {
     currentUser?: string | null;
     youtubeUrl?: string;
     onTriggerLogin?: () => void;
+    onLoadOriginalAudio?: (url: string) => void;
 }
 
 export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ 
@@ -31,7 +32,8 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
     isActive = true, 
     currentUser, 
     youtubeUrl,
-    onTriggerLogin
+    onTriggerLogin,
+    onLoadOriginalAudio
 }) => {
     // Local file state
     const [localFileUrl, setLocalFileUrl] = useState<string | null>(null);
@@ -115,17 +117,21 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         
         const initialTracks: Record<string, TrackState> = {};
         Object.entries(item.tracks).forEach(([name, url]) => {
-            if (name !== 'original') {
-                initialTracks[name] = {
-                    url: `${API_BASE_URL}${url}`,
-                    volume: 1,
-                    muted: false,
-                };
-            }
+            // 保留原始音軌（original）供播放器對比，但預設音量設為 0 並靜音，避免直接與分離音軌混音
+            initialTracks[name] = {
+                url: `${API_BASE_URL}${url}`,
+                volume: name === 'original' ? 0 : 1,
+                muted: name === 'original',
+            };
         });
         setTracks(initialTracks);
         setStatus('completed');
         setError(null);
+
+        // 如果包含 original 原始音軌，主動回傳給父層元件，以便變調器 (LocalPlayer) 同步載用該音訊
+        if (item.tracks.original) {
+            onLoadOriginalAudio?.(`${API_BASE_URL}${item.tracks.original}`);
+        }
         
         // 捲動至頂部播放器以優化體驗
         window.scrollTo({ top: 0, behavior: 'smooth' });

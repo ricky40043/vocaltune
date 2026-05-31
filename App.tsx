@@ -554,6 +554,11 @@ export default function App() {
                         currentUser={currentUser}
                         youtubeUrl={downloadedFileUrl && !downloadedFileUrl.startsWith('blob:') ? (url && !urlError ? url : undefined) : undefined}
                         onTriggerLogin={() => setShowLogin(true)}
+                        onLoadOriginalAudio={(audioUrl) => {
+                            // 當從分離歷史紀錄載入歌曲時，同步更新下載的原始音訊檔案 URL
+                            // 藉此讓變調器 (LocalPlayer) 也能同步加載這首原始音訊！
+                            setDownloadedFileUrl(audioUrl);
+                        }}
                     />
                 </div>
 

@@ -161,7 +161,7 @@ def get_user_history_list(username: str) -> list:
     cursor = conn.cursor()
     try:
         cursor.execute("""
-            SELECT s.job_id, s.song_type, s.youtube_url, s.video_id, s.title, s.stems, s.status, s.tracks_json, s.error_message, h.created_at
+            SELECT s.job_id, s.song_type, s.youtube_url, s.video_id, s.title, s.stems, s.status, s.tracks_json, s.error_message, h.created_at, s.file_path
             FROM user_histories h
             JOIN users u ON h.user_id = u.id
             JOIN songs s ON h.song_id = s.id
@@ -177,9 +177,18 @@ def get_user_history_list(username: str) -> list:
                 try:
                     item["tracks"] = json.loads(item["tracks_json"])
                 except Exception:
-                    item["tracks"] = None
+                    item["tracks"] = {}
             else:
-                item["tracks"] = None
+                item["tracks"] = {}
+            
+            # 自動補全 original 軌道 URL，供前端播放器對比或載入
+            if item.get("file_path") and isinstance(item["tracks"], dict):
+                original_filename = Path(item["file_path"]).name
+                if "downloads" in str(item["file_path"]):
+                    item["tracks"]["original"] = f"/files/downloads/{original_filename}"
+                else:
+                    item["tracks"]["original"] = f"/files/separated/{item['job_id']}/{original_filename}"
+                    
             result.append(item)
         return result
     finally:
