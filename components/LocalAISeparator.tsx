@@ -1,3 +1,4 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     Play, Pause, Loader2, AlertCircle, CheckCircle2,
     Layers, Download, Volume2, Upload, Music
@@ -400,10 +401,10 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         const initTone = () => {
             // Cleanup previous players and volume nodes
             if (playersRef.current) {
-                Object.values(playersRef.current).forEach(p => p.dispose());
+                Object.values(playersRef.current).forEach((p: any) => p.dispose());
                 playersRef.current = null;
             }
-            Object.values(volumeNodesRef.current).forEach(n => n.dispose());
+            Object.values(volumeNodesRef.current).forEach((n: any) => n.dispose());
             volumeNodesRef.current = {};
 
             Tone.Transport.stop();
@@ -431,7 +432,8 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                 volumeNodesRef.current = volMap;
 
                 // 載入完成後，立刻將當前的 tracks 與 soloedTrack 狀態同步套用到全新的 volume 節點上
-                trackEntries.forEach(([name, track]) => {
+                trackEntries.forEach(([name, trackObj]) => {
+                    const track = trackObj as TrackState;
                     if (volMap[name]) {
                         const shouldMute = track.muted || (soloedTrack !== null && name !== soloedTrack);
                         if (shouldMute) {
@@ -445,7 +447,8 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
             };
 
             // Create one Player + one Volume per track, directly wired
-            trackEntries.forEach(([name, track]) => {
+            trackEntries.forEach(([name, trackObj]) => {
+                const track = trackObj as TrackState;
                 const vol = new Tone.Volume(0).toDestination();
                 const player = new Tone.Player(track.url, () => {
                     loadedCount++;
@@ -461,10 +464,10 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
         return () => {
             if (playersRef.current) {
-                Object.values(playersRef.current).forEach(p => p.dispose());
+                Object.values(playersRef.current).forEach((p: any) => p.dispose());
                 playersRef.current = null;
             }
-            Object.values(volumeNodesRef.current).forEach(n => n.dispose());
+            Object.values(volumeNodesRef.current).forEach((n: any) => n.dispose());
             volumeNodesRef.current = {};
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -575,10 +578,10 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         Tone.Transport.stop();
         Tone.Transport.seconds = 0;
         if (playersRef.current) {
-            Object.values(playersRef.current).forEach(p => p.dispose());
+            Object.values(playersRef.current).forEach((p: any) => p.dispose());
             playersRef.current = null;
         }
-        Object.values(volumeNodesRef.current).forEach(n => n.dispose());
+        Object.values(volumeNodesRef.current).forEach((n: any) => n.dispose());
         volumeNodesRef.current = {};
 
         setJobId(null);
