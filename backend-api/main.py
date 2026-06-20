@@ -271,6 +271,59 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ─────────────────────────── 使用紀錄 DB + 後台 ──────────────────────────────
+import usage_db
+from fastapi import Request
+from fastapi.responses import JSONResponse
+usage_db.init_db(str(BASE_DIR / "db_data" / "usage.db"))
+ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', '')
+
+def client_ip(request: Request):
+    return (request.headers.get('cf-connecting-ip')
+            or request.headers.get('x-forwarded-for', '').split(',')[0].strip()
+            or (request.client.host if request.client else '') or '')
+
+def _admin_ok(request: Request):
+    if not ADMIN_TOKEN:
+        return False
+    got = request.headers.get('x-admin-token') or request.query_params.get('token', '')
+    if not got:
+        a = request.headers.get('authorization', '')
+        if a.startswith('Bearer '):
+            got = a[7:]
+    return got == ADMIN_TOKEN
+
+@app.get("/admin")
+def admin_page():
+    return FileResponse(str(BASE_DIR / "admin.html"))
+
+@app.get("/api/admin/usage")
+def admin_usage(request: Request, limit: int = 100, offset: int = 0):
+    if not _admin_ok(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return {"items": usage_db.list_usage(min(limit, 500), offset), "total": usage_db.count_usage()}
+
+@app.get("/api/admin/stats")
+def admin_stats(request: Request):
+    if not _admin_ok(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return usage_db.get_stats()
+
+@app.get("/api/admin/ktv")
+def admin_ktv(request: Request):
+    if not _admin_ok(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        conn = db.get_db_connection()
+        users = [dict(r) for r in conn.execute("SELECT username, created_at FROM users ORDER BY created_at DESC").fetchall()]
+        songs = [dict(r) for r in conn.execute("SELECT title, song_type, youtube_url, status, created_at FROM songs ORDER BY created_at DESC LIMIT 200").fetchall()]
+        play_count = conn.execute("SELECT COUNT(*) c FROM user_histories").fetchone()["c"]
+        conn.close()
+        return {"user_count": len(users), "song_count": len(songs), "play_count": play_count,
+                "users": users, "songs": songs}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 # Serve static files (downloaded and separated audio)
 app.mount("/files/downloads", StaticFiles(directory=str(DOWNLOADS_DIR)), name="downloads")
 app.mount("/files/separated", StaticFiles(directory=str(SEPARATED_DIR)), name="separated")
@@ -856,7 +909,7 @@ def health_check():
     }
 
 @app.post("/api/download", response_model=DownloadResponse)
-async def download_youtube(request: DownloadRequest, background_tasks: BackgroundTasks):
+async def download_youtube(request: DownloadRequest, background_tasks: BackgroundTasks, http_request: Request):
     """
     直接下載 YouTube 音訊
     - 驗證 URL
@@ -864,11 +917,17 @@ async def download_youtube(request: DownloadRequest, background_tasks: Backgroun
     - 回傳 job_id 供前端追蹤進度
     """
     if not validate_youtube_url(request.youtube_url):
+        usage_db.log_usage(client_ip(http_request), '轉檔下載', summary=request.youtube_url,
+            status='error', error='無效的 YouTube 連結', user_agent=http_request.headers.get('user-agent', ''))
         raise HTTPException(
             status_code=400,
             detail="無效的 YouTube 連結 (支援 Watch, Shorts, Youtu.be)"
         )
-    
+
+    usage_db.log_usage(client_ip(http_request), '轉檔下載', summary=request.youtube_url,
+        detail={'youtube_url': request.youtube_url}, status='ok',
+        user_agent=http_request.headers.get('user-agent', ''))
+
     job_id = str(uuid.uuid4())[:8]  # Shorter ID for simplicity
     
     update_job_status(job_id, {
@@ -912,7 +971,7 @@ def get_youtube_title(url: str) -> Optional[str]:
     return None
 
 @app.post("/api/separate-local", response_model=DownloadResponse)
-async def separate_local(request: SeparateRequest, background_tasks: BackgroundTasks):
+async def separate_local(request: SeparateRequest, background_tasks: BackgroundTasks, http_request: Request):
     """
     AI 音軌分離
     - 使用 Demucs 分離音軌
@@ -922,11 +981,15 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
     """
     import hashlib
     import re
-    
+
     file_path = request.file_path
     stems = request.stems or "6"
     username = request.username or "guest_default"
     youtube_url = request.youtube_url
+
+    usage_db.log_usage(client_ip(http_request), '音樂分離', summary=(youtube_url or file_path or ''),
+        detail={'stems': stems, 'username': username, 'youtube_url': youtube_url}, status='ok',
+        user_agent=http_request.headers.get('user-agent', ''))
     
     # 1. 取得或創建用戶
     user_id = db.get_or_create_user(username)
@@ -1598,7 +1661,7 @@ class PitchShiftRequest(BaseModel):
     semitones: float
 
 @app.post("/api/pitch-shift-premium")
-def pitch_shift_premium(request: PitchShiftRequest):
+def pitch_shift_premium(request: PitchShiftRequest, http_request: Request):
     """
     使用後端 Librosa 進行高品質無損變調，支援高質感 Caching 機制
     """
@@ -1608,7 +1671,14 @@ def pitch_shift_premium(request: PitchShiftRequest):
 
     file_path = request.file_path
     semitones = request.semitones
-    
+
+    # 記錄升降 key 操作（semitones 即升降幾個半音；0 表示沒有升降）
+    _dir = '升' if semitones > 0 else ('降' if semitones < 0 else '無變化')
+    usage_db.log_usage(client_ip(http_request), '升降key',
+        summary=f"{_dir} {abs(semitones):g} 個半音",
+        detail={'semitones': semitones, 'used_pitch': semitones != 0}, status='ok',
+        user_agent=http_request.headers.get('user-agent', ''))
+
     # 1. 決定檔案的真實磁碟路徑
     if "://" in file_path:
         try:
@@ -1705,15 +1775,19 @@ if FRONTEND_DIST.exists():
 
     # Catch-all route for SPA (React Router)
     @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str):
+    async def serve_spa(full_path: str, request: Request):
         # Allow API and Files access to pass through
         if full_path.startswith("api/") or full_path.startswith("files/"):
             raise HTTPException(status_code=404)
-        
+
+        # admin-vocal 子網域：任何路徑都顯示後台
+        if request.headers.get('host', '').startswith('admin'):
+            return FileResponse(str(BASE_DIR / "admin.html"))
+
         # Check if file exists (e.g. favicon.ico)
         file_path = FRONTEND_DIST / full_path
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
-            
+
         # Fallback to index.html for React Routes
         return FileResponse(FRONTEND_DIST / "index.html")

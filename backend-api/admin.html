@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VocalTune 使用紀錄</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,"Microsoft JhengHei",sans-serif; background:#f1f5f9; color:#1e293b; }
+  .wrap { max-width:1080px; margin:0 auto; padding:1.5rem 1rem 4rem; }
+  .login { max-width:340px; margin:14vh auto; background:#fff; padding:2rem; border-radius:16px; box-shadow:0 10px 40px rgba(0,0,0,.12); text-align:center; }
+  .login h1 { font-size:1.3rem; margin:0 0 1rem; }
+  input { width:100%; padding:.75rem; border:2px solid #e2e8f0; border-radius:10px; font-size:1rem; }
+  button { background:#8b5cf6; color:#fff; border:0; padding:.65rem 1.2rem; border-radius:10px; font-weight:700; cursor:pointer; }
+  .err { color:#dc2626; font-size:.85rem; margin-top:.6rem; }
+  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; }
+  header h1 { font-size:1.25rem; margin:0; }
+  .logout { background:#94a3b8; padding:.45rem 1rem; font-size:.85rem; }
+  h2.sec { font-size:1.05rem; margin:1.6rem 0 .6rem; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:.7rem; margin-bottom:1.2rem; }
+  .card { background:#fff; border-radius:14px; padding:.9rem; text-align:center; box-shadow:0 2px 10px rgba(0,0,0,.05); }
+  .card .n { font-size:1.7rem; font-weight:800; display:block; }
+  .card .l { font-size:.78rem; color:#64748b; }
+  .card.ok .n{color:#16a34a;} .card.bad .n{color:#dc2626;}
+  .charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem; margin-bottom:1rem; }
+  .chart { background:#fff; border-radius:14px; padding:1rem 1.2rem; box-shadow:0 2px 10px rgba(0,0,0,.05); }
+  .chart h3 { font-size:.95rem; margin:0 0 .6rem; }
+  .bar { display:grid; grid-template-columns:96px 1fr 40px; align-items:center; gap:.5rem; margin:.3rem 0; font-size:.8rem; }
+  .bar .lab { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#475569; }
+  .bar .track { background:#ede9fe; border-radius:6px; height:15px; overflow:hidden; }
+  .bar .fill { height:100%; background:linear-gradient(90deg,#8b5cf6,#6366f1); }
+  .bar .cnt { text-align:right; font-weight:700; color:#475569; }
+  .tbox { background:#fff; border-radius:14px; padding:1rem 1.1rem; box-shadow:0 2px 10px rgba(0,0,0,.05); overflow-x:auto; margin-bottom:1rem; }
+  table { width:100%; border-collapse:collapse; font-size:.82rem; }
+  th,td { text-align:left; padding:.5rem .45rem; border-bottom:1px solid #f1f5f9; white-space:nowrap; }
+  th { color:#64748b; }
+  td.sum { white-space:normal; max-width:280px; }
+  .st-ok { color:#16a34a; font-weight:700; } .st-error { color:#dc2626; font-weight:700; }
+  .muted { color:#94a3b8; }
+  a { color:#6366f1; }
+</style>
+</head>
+<body>
+<div id="app" class="wrap"></div>
+<script>
+const TKEY = 'vocalAdminToken';
+let token = localStorage.getItem(TKEY) || '';
+const app = document.getElementById('app');
+const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function api(path){
+  const r = await fetch('/api/admin'+path, { headers:{ 'X-Admin-Token': token } });
+  if(!r.ok){ const e=new Error('http'); e.status=r.status; throw e; }
+  return r.json();
+}
+function bars(data){
+  const max = Math.max(1, ...data.map(d=>d.count));
+  return data.map(d=>`<div class="bar"><span class="lab">${esc(d.label||'(空)')}</span><span class="track"><span class="fill" style="width:${d.count/max*100}%"></span></span><span class="cnt">${d.count}</span></div>`).join('') || '<p class="muted">無資料</p>';
+}
+function loginView(msg){
+  app.innerHTML = `<div class="login"><h1>🎵 VocalTune 使用紀錄</h1><input id="tok" type="password" placeholder="管理 Token"><div style="height:.6rem"></div><button onclick="doLogin()">進入</button>${msg?`<p class="err">${esc(msg)}</p>`:''}</div>`;
+  document.getElementById('tok').addEventListener('keyup',e=>{if(e.key==='Enter')doLogin();});
+}
+async function doLogin(){
+  token = document.getElementById('tok').value.trim();
+  try{ await api('/stats'); localStorage.setItem(TKEY, token); render(); }
+  catch(e){ loginView(e.status===401?'Token 錯誤':'連線失敗'); }
+}
+function logout(){ localStorage.removeItem(TKEY); token=''; loginView(); }
+
+async function render(){
+  try{
+    const [stats, usage, ktv] = await Promise.all([ api('/stats'), api('/usage?limit=200'), api('/ktv') ]);
+    const rate = stats.total ? Math.round(stats.ok/stats.total*100) : 0;
+    app.innerHTML = `
+      <header><h1>🎵 VocalTune 使用紀錄</h1><button class="logout" onclick="logout()">登出</button></header>
+
+      <h2 class="sec">🎛 功能操作</h2>
+      <div class="cards">
+        <div class="card"><span class="n">${stats.total}</span><span class="l">總操作數</span></div>
+        <div class="card ok"><span class="n">${stats.ok}</span><span class="l">成功</span></div>
+        <div class="card bad"><span class="n">${stats.error}</span><span class="l">錯誤</span></div>
+        <div class="card"><span class="n">${rate}%</span><span class="l">成功率</span></div>
+        <div class="card"><span class="n">${stats.unique_ips}</span><span class="l">不重複 IP</span></div>
+      </div>
+      <div class="charts">
+        <div class="chart"><h3>功能使用分布</h3>${bars(stats.by_endpoint)}</div>
+        <div class="chart"><h3>每日使用量</h3>${bars(stats.by_day)}</div>
+        <div class="chart"><h3>時段分布（小時）</h3>${bars(stats.by_hour)}</div>
+        <div class="chart"><h3>最常使用的 IP</h3>${bars(stats.top_ips)}</div>
+      </div>
+      <div class="tbox">
+        <h3 style="margin:.2rem 0 .6rem">最近 200 筆操作</h3>
+        <table><thead><tr><th>時間</th><th>IP</th><th>功能</th><th>內容</th><th>狀態</th></tr></thead><tbody>
+        ${usage.items.map(u=>`<tr>
+          <td>${esc(u.ts)}</td><td>${esc(u.ip)}</td><td>${esc(u.endpoint)}</td>
+          <td class="sum">${esc(u.summary)}${u.error?`<br><span class="st-error">${esc(u.error)}</span>`:''}</td>
+          <td class="st-${u.status}">${u.status==='ok'?'成功':'錯誤'}</td>
+        </tr>`).join('') || '<tr><td colspan="5" class="muted" style="text-align:center;padding:1.5rem">尚無操作紀錄</td></tr>'}
+        </tbody></table>
+      </div>
+
+      <h2 class="sec">🎤 KTV / 卡拉OK</h2>
+      <div class="cards">
+        <div class="card"><span class="n">${ktv.user_count}</span><span class="l">使用者</span></div>
+        <div class="card"><span class="n">${ktv.song_count}</span><span class="l">影片/歌曲</span></div>
+        <div class="card"><span class="n">${ktv.play_count}</span><span class="l">播放紀錄</span></div>
+      </div>
+      <div class="tbox">
+        <h3 style="margin:.2rem 0 .6rem">使用者</h3>
+        <table><thead><tr><th>帳號</th><th>建立時間</th></tr></thead><tbody>
+        ${ktv.users.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.created_at)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted" style="text-align:center;padding:1rem">無</td></tr>'}
+        </tbody></table>
+      </div>
+      <div class="tbox">
+        <h3 style="margin:.2rem 0 .6rem">影片 / 歌曲</h3>
+        <table><thead><tr><th>標題</th><th>類型</th><th>狀態</th><th>連結</th><th>時間</th></tr></thead><tbody>
+        ${ktv.songs.map(s=>`<tr>
+          <td class="sum">${esc(s.title||'(未命名)')}</td><td>${esc(s.song_type)}</td>
+          <td class="st-${s.status==='completed'?'ok':'error'}">${esc(s.status)}</td>
+          <td>${s.youtube_url?`<a href="${esc(s.youtube_url)}" target="_blank">開啟</a>`:'—'}</td>
+          <td>${esc(s.created_at)}</td>
+        </tr>`).join('') || '<tr><td colspan="5" class="muted" style="text-align:center;padding:1rem">無</td></tr>'}
+        </tbody></table>
+      </div>
+    `;
+  }catch(e){ if(e.status===401){ logout(); } else { app.innerHTML='<p class="err" style="text-align:center">載入失敗</p>'; } }
+}
+
+if(token) render(); else loginView();
+</script>
+</body>
+</html>
