@@ -4,6 +4,8 @@ services:
   vocal-studio:
     build: .
     container_name: vocal-studio
+    env_file:
+      - .env
     ports:
       - "18300:8080"
     volumes:
