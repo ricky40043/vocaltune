@@ -28,6 +28,12 @@ interface LocalAISeparatorProps {
     loadedHistoryJob?: any | null; // 來自全域歷史紀錄抽屜載入的任務
 }
 
+const separatedTrackEntries = (rawTracks: Record<string, unknown> | null | undefined): [string, string][] =>
+    Object.entries(rawTracks || {}).filter((entry): entry is [string, string] => {
+        const [name, url] = entry;
+        return name !== 'original' && typeof url === 'string' && url.length > 0;
+    });
+
 export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({ 
     audioFileUrl, 
     isActive = true, 
@@ -124,7 +130,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
     // 載入歷史紀錄到播放器
     const handleLoadJob = (item: any) => {
-        const playableTracks = Object.entries(item.tracks || {}).filter(([name, url]) => name !== 'original' && typeof url === 'string' && url.length > 0);
+        const playableTracks = separatedTrackEntries(item.tracks);
         if (item.status !== 'completed' || playableTracks.length === 0) {
             setJobId(item.job_id || null);
             setTracks({});
@@ -147,7 +153,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         setStems(item.stems);
         
         const initialTracks: Record<string, TrackState> = {};
-        Object.entries(item.tracks || {}).forEach(([name, url]) => {
+        playableTracks.forEach(([name, url]) => {
             // 保留原始音軌（original）供播放器對比，但預設音量設為 0 並靜音，避免直接與分離音軌混音
             initialTracks[name] = {
                 url: `${API_BASE_URL}${url}`,
@@ -359,7 +365,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
                     // Initialize tracks
                     const initialTracks: Record<string, TrackState> = {};
-                    Object.entries(data.tracks).forEach(([name, url]) => {
+                    separatedTrackEntries(data.tracks).forEach(([name, url]) => {
                         // 保留原始音軌（original）供播放器對比，但預設音量設為 0 並靜音，避免直接與分離音軌混音
                         initialTracks[name] = {
                             url: `${API_BASE_URL}${url}`,

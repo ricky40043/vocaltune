@@ -43,6 +43,7 @@ class HistoryTrackRecoveryTests(unittest.TestCase):
         item = db.get_user_history_list("ricky")[0]
         self.assertEqual(item["status"], "completed")
         self.assertEqual(set(item["tracks"]), set(db.expected_track_names("6")))
+        self.assertNotIn("original", item["tracks"])
 
     def test_completed_history_with_missing_track_becomes_error(self):
         self.create_history(tracks={"vocals": "/old/path.wav"})

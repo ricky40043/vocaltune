@@ -887,13 +887,6 @@ async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
                     shutil.copy(track_file, dest_path)
                     tracks[track_name] = f"/files/separated/{job_id}/{track_name}.wav"
         
-        # 額外加入 original 原始音軌，供前端載入或對比使用
-        original_filename = Path(audio_path).name
-        if "downloads" in str(audio_path):
-            tracks["original"] = f"/files/downloads/{original_filename}"
-        else:
-            tracks["original"] = f"/files/separated/{job_id}/{original_filename}"
-
         if not tracks:
             raise Exception("分離完成但找不到任何音軌")
         
@@ -1138,14 +1131,11 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
             # DB 已存在時也修復舊版可能為空或損壞的 tracks_json。
             db.update_song_status_db(job_id, "completed", tracks_dict=cached_disk_tracks)
 
-        restored_tracks = dict(cached_disk_tracks)
-        if "downloads" in str(audio_path):
-            restored_tracks["original"] = f"/files/downloads/{audio_path.name}"
         update_job_status(job_id, {
             "status": "completed",
             "progress": 100,
             "message": "快取命中！音軌分離結果已加載。",
-            "tracks": restored_tracks
+            "tracks": cached_disk_tracks
         })
             
         # 建立用戶歷史關聯
