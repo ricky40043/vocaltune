@@ -19,6 +19,8 @@ jobs:
       # 這裡只做語法檢查（compile），抓語法錯就好。
       - name: Syntax check (compileall, 排除任何 venv)
         run: python -m compileall backend-api -x 'venv'
+      - name: Media duration policy tests
+        run: PYTHONPATH=backend-api python -m unittest backend-api/test_media_policy.py -v
 
   frontend:
     name: Frontend

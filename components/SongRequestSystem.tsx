@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Trash2, Mic2, Play, Loader2, Music, Youtube, Check } from 'lucide-react';
 import { getYouTubeID } from '../utils/youtube';
+import { MAX_MEDIA_SECONDS, adminHeaders, isAdminMode } from '../utils/mediaPolicy';
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
@@ -110,10 +111,15 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, 
 
     const addToQueue = async (video: SearchResult) => {
         try {
+            const durationSeconds = String(video.duration).split(':').map(Number).reduce((total, part) => total * 60 + part, 0);
+            if (durationSeconds > MAX_MEDIA_SECONDS && !isAdminMode()) {
+                alert('音樂長度不可超過 10 分鐘');
+                return;
+            }
             const formattedDuration = formatDuration(video.duration);
             const res = await fetch(`${API_BASE_URL}/api/queue${userQuery}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: adminHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
                     youtube_url: video.url,
                     title: video.title,

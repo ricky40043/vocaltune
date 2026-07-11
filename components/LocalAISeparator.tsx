@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import * as Tone from 'tone';
 import { WaveformTrack } from './WaveformTrack';
+import { adminHeaders, validateMediaFile } from '../utils/mediaPolicy';
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
@@ -194,6 +195,9 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         const file = event.target.files?.[0];
         if (!file) return;
 
+        try { await validateMediaFile(file); }
+        catch (err) { setError(err instanceof Error ? err.message : '無法讀取媒體長度'); event.target.value = ''; return; }
+
         setIsUploading(true);
         setError(null);
 
@@ -203,6 +207,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
             const response = await fetch(`${API_BASE_URL}/api/upload`, {
                 method: 'POST',
+                headers: adminHeaders(),
                 body: formData,
             });
 
@@ -245,6 +250,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
                 const uploadRes = await fetch(`${API_BASE_URL}/api/upload`, {
                     method: 'POST',
+                    headers: adminHeaders(),
                     body: formData,
                 });
 
@@ -265,7 +271,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         try {
             const response = await fetch(`${API_BASE_URL}/api/separate-local`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: adminHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ 
                     file_path: filePathToSend, 
                     stems: stems,

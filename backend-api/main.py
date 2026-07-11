@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import asyncio
 import json
+import media_policy
 
 # Directories
 BASE_DIR = Path(__file__).parent
@@ -374,6 +375,13 @@ class SongRequest(BaseModel):
     thumbnail: Optional[str] = None
     duration: Optional[str] = "0:00"
 
+class AdminModeLogin(BaseModel):
+    password: str
+
+@app.post("/api/admin-mode/login")
+async def admin_mode_login(request: AdminModeLogin):
+    return {"token": media_policy.authenticate(request.password), "expires_in": media_policy.ADMIN_MODE_TTL_SECONDS}
+
 @app.on_event("startup")
 async def startup_event():
     db.init_db()
@@ -393,8 +401,10 @@ async def get_queue(user: str = None):
     return load_queue(user)
 
 @app.post("/api/queue")
-async def add_to_queue(request: SongRequest, user: str = None):
+async def add_to_queue(request: SongRequest, http_request: Request, user: str = None):
     """Add a song to the queue (supports per-user queues via ?user=xxx)"""
+    duration = await asyncio.to_thread(media_policy.probe_youtube_duration, request.youtube_url)
+    media_policy.enforce_duration(duration, http_request)
     queue = load_queue(user)
     
     # Check if already exists
@@ -531,7 +541,7 @@ def analyze_upload(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(http_request: Request, file: UploadFile = File(...)):
     """上傳檔案至 downloads 目錄供後續處理"""
     try:
         # Generate unique filename
@@ -544,6 +554,12 @@ async def upload_file(file: UploadFile = File(...)):
         
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+        try:
+            duration = await asyncio.to_thread(media_policy.probe_file_duration, file_path)
+            media_policy.enforce_duration(duration, http_request)
+        except Exception:
+            file_path.unlink(missing_ok=True)
+            raise
             
         return {
             "status": "success",
@@ -552,6 +568,8 @@ async def upload_file(file: UploadFile = File(...)):
             "file_path": str(file_path),
             "filename": file.filename
         }
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"File Upload Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -924,6 +942,9 @@ async def download_youtube(request: DownloadRequest, background_tasks: Backgroun
             detail="無效的 YouTube 連結 (支援 Watch, Shorts, Youtu.be)"
         )
 
+    duration = await asyncio.to_thread(media_policy.probe_youtube_duration, request.youtube_url)
+    media_policy.enforce_duration(duration, http_request)
+
     usage_db.log_usage(client_ip(http_request), '轉檔下載', summary=request.youtube_url,
         detail={'youtube_url': request.youtube_url}, status='ok',
         user_agent=http_request.headers.get('user-agent', ''))
@@ -1047,6 +1068,9 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
         else:
             print(f"[Error] File not found at: {audio_path}")
             raise HTTPException(status_code=404, detail=f"找不到音訊檔案: {request.file_path}")
+
+    duration = await asyncio.to_thread(media_policy.probe_file_duration, audio_path)
+    media_policy.enforce_duration(duration, http_request)
 
     # 4. 計算確定性工作 job_id
     file_name = audio_path.name
@@ -1385,7 +1409,7 @@ async def rename_separate_history_item(request: RenameRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/upload")
-async def upload_audio(file: UploadFile = File(...)):
+async def upload_audio(http_request: Request, file: UploadFile = File(...)):
     """
     上傳音訊檔案
     供前端直接上傳本地檔案
@@ -1399,6 +1423,12 @@ async def upload_audio(file: UploadFile = File(...)):
     with open(save_path, "wb") as f:
         content = await file.read()
         f.write(content)
+    try:
+        duration = await asyncio.to_thread(media_policy.probe_file_duration, save_path)
+        media_policy.enforce_duration(duration, http_request)
+    except Exception:
+        save_path.unlink(missing_ok=True)
+        raise
     
     return {
         "job_id": job_id,
@@ -1407,12 +1437,18 @@ async def upload_audio(file: UploadFile = File(...)):
     }
 
 @app.post("/api/karaoke/process", response_model=DownloadResponse)
-async def create_karaoke(request: DownloadRequest, background_tasks: BackgroundTasks):
+async def create_karaoke(request: DownloadRequest, background_tasks: BackgroundTasks, http_request: Request):
     """
     製作卡拉OK影片 (伴奏版 MV)
     - 支援 YouTube 下載或本地檔案
     - 自動分離人聲 + 合成影片
     """
+    if request.youtube_url.startswith("http"):
+        duration = await asyncio.to_thread(media_policy.probe_youtube_duration, request.youtube_url)
+    else:
+        raw_path = request.youtube_url.replace("/files/downloads/", "")
+        duration = await asyncio.to_thread(media_policy.probe_file_duration, DOWNLOADS_DIR / raw_path)
+    media_policy.enforce_duration(duration, http_request)
     job_id = str(uuid.uuid4())[:8]
     
     update_job_status(job_id, {
