@@ -51,19 +51,50 @@ export default function App() {
     const [adminPassword, setAdminPassword] = useState('');
     const [adminError, setAdminError] = useState<string | null>(null);
     const [adminMode, setAdminMode] = useState(isAdminMode());
+    const adminLongPressTimer = React.useRef<number | null>(null);
+    const adminTouchStartedAt = React.useRef(0);
+
+    const openAdminLogin = React.useCallback(() => {
+        setAdminPassword('');
+        setAdminError(null);
+        setShowAdminLogin(true);
+    }, []);
+
+    const startAdminLongPress = () => {
+        if (adminLongPressTimer.current) window.clearTimeout(adminLongPressTimer.current);
+        adminLongPressTimer.current = window.setTimeout(openAdminLogin, 3000);
+    };
+
+    const cancelAdminLongPress = () => {
+        if (adminLongPressTimer.current) window.clearTimeout(adminLongPressTimer.current);
+        adminLongPressTimer.current = null;
+    };
+
+    const startAdminTouch = () => {
+        adminTouchStartedAt.current = Date.now();
+        startAdminLongPress();
+    };
+
+    const finishAdminTouch = () => {
+        const heldLongEnough = Date.now() - adminTouchStartedAt.current >= 2800;
+        cancelAdminLongPress();
+        if (heldLongEnough) openAdminLogin();
+        adminTouchStartedAt.current = 0;
+    };
 
     React.useEffect(() => {
         const handleAdminShortcut = (event: KeyboardEvent) => {
             if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'a') {
                 event.preventDefault();
-                setAdminPassword('');
-                setAdminError(null);
-                setShowAdminLogin(true);
+                openAdminLogin();
             }
         };
         window.addEventListener('keydown', handleAdminShortcut);
-        return () => window.removeEventListener('keydown', handleAdminShortcut);
-    }, []);
+        return () => {
+            window.removeEventListener('keydown', handleAdminShortcut);
+            if (adminLongPressTimer.current) window.clearTimeout(adminLongPressTimer.current);
+        };
+    }, [openAdminLogin]);
 
     const loginAdminMode = async (event: React.FormEvent) => {
         event.preventDefault();
@@ -338,7 +369,19 @@ export default function App() {
             <header className="sticky top-0 z-50 bg-brand-900/95 backdrop-blur-lg border-b border-gray-800 shadow-md">
                 <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 md:w-10 md:h-10 bg-brand-accent rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(139,92,246,0.3)]">
+                        <div
+                            className="w-8 h-8 md:w-10 md:h-10 bg-brand-accent rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(139,92,246,0.3)] select-none touch-none"
+                            onPointerDown={startAdminLongPress}
+                            onPointerUp={cancelAdminLongPress}
+                            onPointerCancel={cancelAdminLongPress}
+                            onPointerLeave={cancelAdminLongPress}
+                            onTouchStart={startAdminTouch}
+                            onTouchEnd={finishAdminTouch}
+                            onTouchCancel={cancelAdminLongPress}
+                            onContextMenu={(event) => event.preventDefault()}
+                            aria-label="VocalTune"
+                            title="VocalTune"
+                        >
                             <Music size={18} className="text-white md:hidden" />
                             <Music size={22} className="text-white hidden md:block" />
                         </div>
@@ -646,7 +689,7 @@ export default function App() {
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="管理模式登入">
                         <form onSubmit={loginAdminMode} className="w-full max-w-sm rounded-2xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
                             <h2 className="mb-2 text-xl font-bold text-white">進入 ADMIN 模式</h2>
-                            <p className="mb-4 text-sm text-gray-400">驗證後，本分頁可處理超過 10 分鐘的媒體。</p>
+                            <p className="mb-4 text-sm text-gray-400">驗證後，本分頁可處理超過 10 分鐘的媒體。手機可長按左上角 Logo 3 秒開啟此視窗。</p>
                             <input autoFocus type="password" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} placeholder="管理密碼" className="w-full rounded-xl border border-gray-700 bg-gray-950 px-4 py-3 text-white outline-none focus:border-amber-400" />
                             {adminError && <p className="mt-2 text-sm text-red-400">{adminError}</p>}
                             <div className="mt-5 flex justify-end gap-2">

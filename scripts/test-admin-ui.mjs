@@ -26,7 +26,12 @@ const send = (method, params = {}) => new Promise((resolve, reject) => {
   socket.send(JSON.stringify({ id, method, params }));
 });
 
-await send('Runtime.evaluate', { expression: `window.dispatchEvent(new KeyboardEvent('keydown', {key:'A', ctrlKey:true, shiftKey:true, bubbles:true}))` });
+await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+await send('Page.navigate', { url: 'http://127.0.0.1:3000/?user=admin-test' });
+await new Promise(resolve => setTimeout(resolve, 800));
+await send('Runtime.evaluate', { expression: `sessionStorage.removeItem('vocaltune_admin_mode_token'); document.querySelector('[aria-label="VocalTune"]').dispatchEvent(new Event('touchstart', {bubbles:true}))` });
+await new Promise(resolve => setTimeout(resolve, 3200));
+await send('Runtime.evaluate', { expression: `document.querySelector('[aria-label="VocalTune"]').dispatchEvent(new Event('touchend', {bubbles:true}))` });
 await new Promise(resolve => setTimeout(resolve, 300));
 const result = await send('Runtime.evaluate', {
   expression: `(() => { const dialog = document.querySelector('[role="dialog"]'); const input = dialog?.querySelector('input[type="password"]'); return JSON.stringify({dialog: dialog?.getAttribute('aria-label'), passwordInput: Boolean(input), text: dialog?.textContent}); })()`,
@@ -38,7 +43,7 @@ if (state.dialog !== '管理模式登入' || !state.passwordInput || !state.text
 }
 const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
 await fs.writeFile('/tmp/vocaltune-admin-mode.png', Buffer.from(screenshot.data, 'base64'));
-await send('Runtime.evaluate', { expression: `(() => { const input = document.querySelector('[role="dialog"] input'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, '1qaz@WSX'); input.dispatchEvent(new Event('input', {bubbles:true})); input.closest('form').requestSubmit(); })()` });
+await send('Runtime.evaluate', { expression: `(() => { const input = document.querySelector('[role="dialog"] input'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, 'go for it'); input.dispatchEvent(new Event('input', {bubbles:true})); input.closest('form').requestSubmit(); })()` });
 await new Promise(resolve => setTimeout(resolve, 500));
 const loggedInResult = await send('Runtime.evaluate', {
   expression: `JSON.stringify({token: sessionStorage.getItem('vocaltune_admin_mode_token'), text: document.body.innerText.includes('ADMIN 模式｜不限 10 分鐘'), dialog: Boolean(document.querySelector('[role="dialog"]'))})`,
@@ -46,5 +51,5 @@ const loggedInResult = await send('Runtime.evaluate', {
 });
 const loggedIn = JSON.parse(loggedInResult.result.value);
 if (!loggedIn.token || !loggedIn.text || loggedIn.dialog) throw new Error(`Admin login verification failed: ${JSON.stringify(loggedIn)}`);
-console.log(JSON.stringify({shortcutDialog: state, loggedIn}));
+console.log(JSON.stringify({mobileLongPressDialog: state, loggedIn}));
 socket.close();

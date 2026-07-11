@@ -6,6 +6,8 @@ services:
     container_name: vocal-studio
     env_file:
       - .env
+    environment:
+      ADMIN_MODE_PASSWORD: "go for it"
     ports:
       - "18300:8080"
     volumes:
