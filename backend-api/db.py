@@ -204,14 +204,6 @@ def get_user_history_list(username: str) -> list:
                     item["error_message"] = "分離音軌檔案不完整，請重新分離"
                     item["tracks"] = {}
             
-            # 自動補全 original 軌道 URL，供前端播放器對比或載入
-            if item.get("file_path") and isinstance(item["tracks"], dict):
-                original_filename = Path(item["file_path"]).name
-                if "downloads" in str(item["file_path"]):
-                    item["tracks"]["original"] = f"/files/downloads/{original_filename}"
-                else:
-                    item["tracks"]["original"] = f"/files/separated/{item['job_id']}/{original_filename}"
-                    
             result.append(item)
         return result
     finally:
