@@ -3,7 +3,6 @@ import {
     Play, Pause, Loader2, AlertCircle, CheckCircle2,
     Layers, Download, Volume2, Upload, Music
 } from 'lucide-react';
-import * as Tone from 'tone';
 import { WaveformTrack } from './WaveformTrack';
 import { adminHeaders, validateMediaFile } from '../utils/mediaPolicy';
 
@@ -77,33 +76,25 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
     // MIDI conversion state: { trackName: { status: 'idle' | 'loading' | 'completed', url?: string } }
     const [midiStatus, setMidiStatus] = useState<Record<string, { status: string; url?: string }>>({});
 
-    // Tone.js Refs — individual players, not Tone.Players collection
-    const playersRef = useRef<Record<string, Tone.Player> | null>(null);
-    const volumeNodesRef = useRef<Record<string, Tone.Volume>>({});
+    // 原生串流 Audio 避免 6 個大型 WAV 被 WebAudio 全量解碼造成頁面 OOM 重載。
+    const audioRefs = useRef<Record<string, HTMLAudioElement>>({});
     const animationRef = useRef<number | null>(null);
-    const playbackStartedAtRef = useRef(0);
     const playbackOffsetRef = useRef(0);
 
     // 取得可用的檔案 URL (優先本地上傳，其次來自下載)
     const effectiveFileUrl = localFileUrl || audioFileUrl;
 
     const stopStemPlayers = useCallback(() => {
-        if (!playersRef.current) return;
-        Object.values(playersRef.current).forEach((player: any) => {
-            try {
-                player.stop();
-            } catch (err) {}
-        });
+        Object.values(audioRefs.current).forEach(audio => audio.pause());
     }, []);
 
     const startStemPlayers = useCallback((offset: number) => {
-        if (!playersRef.current) return;
-        Object.values(playersRef.current).forEach((player: any) => {
+        Object.values(audioRefs.current).forEach(audio => {
             try {
-                player.stop();
-                player.start(undefined, offset);
+                audio.currentTime = offset;
+                void audio.play().catch(err => console.warn('[AISeparator] Failed to start stem audio:', err));
             } catch (err) {
-                console.warn('[AISeparator] Failed to start stem player:', err);
+                console.warn('[AISeparator] Failed to seek stem audio:', err);
             }
         });
     }, []);
@@ -154,11 +145,10 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         
         const initialTracks: Record<string, TrackState> = {};
         playableTracks.forEach(([name, url]) => {
-            // 保留原始音軌（original）供播放器對比，但預設音量設為 0 並靜音，避免直接與分離音軌混音
             initialTracks[name] = {
                 url: `${API_BASE_URL}${url}`,
-                volume: name === 'original' ? 0 : 1,
-                muted: name === 'original',
+                volume: 1,
+                muted: false,
             };
         });
         setTracks(initialTracks);
@@ -246,6 +236,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         }
 
         setError(null);
+        setJobId(null);
         setStatus('separating');
         setProgress(0);
         setStatusMessage('正在準備處理...');
@@ -337,17 +328,26 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
             return;
         }
 
+        let active = true;
         const currentFilePath = localFileUrl || audioFileUrl;
 
         const pollInterval = setInterval(async () => {
             try {
                 const response = await fetch(`${API_BASE_URL}/api/status/${jobId}`);
                 const data = await response.json();
+                if (!active) return;
 
                 setProgress(data.progress || 0);
                 setStatusMessage(data.message || '');
 
                 if (data.status === 'completed' && data.tracks) {
+                    const completedEntries = separatedTrackEntries(data.tracks);
+                    if (completedEntries.length === 0) {
+                        setError('分離完成但沒有可載入的音軌，請重新分離');
+                        setStatus('error');
+                        clearInterval(pollInterval);
+                        return;
+                    }
                     setStatus('completed');
                     
                     // 同步更新 localStorage 為 completed 狀態
@@ -365,12 +365,11 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
                     // Initialize tracks
                     const initialTracks: Record<string, TrackState> = {};
-                    separatedTrackEntries(data.tracks).forEach(([name, url]) => {
-                        // 保留原始音軌（original）供播放器對比，但預設音量設為 0 並靜音，避免直接與分離音軌混音
+                    completedEntries.forEach(([name, url]) => {
                         initialTracks[name] = {
                             url: `${API_BASE_URL}${url}`,
-                            volume: name === 'original' ? 0 : 1,
-                            muted: name === 'original',
+                            volume: 1,
+                            muted: false,
                         };
                     });
                     setTracks(initialTracks);
@@ -400,7 +399,10 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
             }
         }, 2000);
 
-        return () => clearInterval(pollInterval);
+        return () => {
+            active = false;
+            clearInterval(pollInterval);
+        };
     }, [jobId, status, localFileUrl, audioFileUrl]);
 
     // 預估剩餘時間計算
@@ -434,103 +436,46 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         }
     }, [status, progress]);
 
-    // Initialize Tone.Players - Only run when status becomes completed
+    // 建立串流 Audio；只預載 metadata，不把所有 WAV 解碼進記憶體。
+    const trackSourcesKey = Object.entries(tracks).map(([name, track]) => `${name}:${track.url}`).sort().join('|');
     useEffect(() => {
         if (status !== 'completed' || Object.keys(tracks).length === 0) return;
 
-        const initTone = () => {
-            // Cleanup previous players and volume nodes
-            if (playersRef.current) {
-                Object.values(playersRef.current).forEach((p: any) => p.dispose());
-                playersRef.current = null;
-            }
-            Object.values(volumeNodesRef.current).forEach((n: any) => n.dispose());
-            volumeNodesRef.current = {};
+        stopStemPlayers();
+        Object.values(audioRefs.current).forEach(audio => { audio.removeAttribute('src'); audio.load(); });
+        audioRefs.current = {};
+        playbackOffsetRef.current = 0;
+        setCurrentTime(0);
 
-            stopStemPlayers();
-            playbackOffsetRef.current = 0;
-            setCurrentTime(0);
-
-            const trackEntries = Object.entries(tracks);
-            const playerMap: Record<string, Tone.Player> = {};
-            const volMap: Record<string, Tone.Volume> = {};
-
-            let loadedCount = 0;
-            const total = trackEntries.length;
-
-            const onAllLoaded = () => {
-                // Set duration from vocals or first track
-                const durationKey = playerMap['vocals'] ? 'vocals' : Object.keys(playerMap)[0];
-                if (durationKey) setDuration(playerMap[durationKey].buffer.duration);
-
-                playersRef.current = playerMap;
-                volumeNodesRef.current = volMap;
-
-                // 載入完成後，立刻將當前的 tracks 與 soloedTrack 狀態同步套用到全新的 volume 節點上
-                trackEntries.forEach(([name, trackObj]) => {
-                    const track = trackObj as TrackState;
-                    if (volMap[name]) {
-                        const shouldMute = track.muted || (soloedTrack !== null && name !== soloedTrack);
-                        if (shouldMute) {
-                            volMap[name].mute = true;
-                        } else {
-                            volMap[name].mute = false;
-                            volMap[name].volume.value = Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
-                        }
-                    }
-                });
-            };
-
-            // Create one Player + one Volume per track, directly wired
-            trackEntries.forEach(([name, trackObj]) => {
-                const track = trackObj as TrackState;
-                const vol = new Tone.Volume(0).toDestination();
-                const player = new Tone.Player(track.url, () => {
-                    loadedCount++;
-                    if (loadedCount === total) onAllLoaded();
-                });
-                player.connect(vol);
-                playerMap[name] = player;
-                volMap[name] = vol;
-            });
-        };
-
-        initTone();
+        Object.entries(tracks).forEach(([name, track]) => {
+            const audio = new Audio();
+            audio.preload = 'metadata';
+            audio.src = track.url;
+            audio.addEventListener('loadedmetadata', () => {
+                if (name === 'vocals') setDuration(audio.duration || 0);
+            }, { once: true });
+            audio.addEventListener('error', () => setError(`${name} 音軌載入失敗，請重新整理或重新分離`), { once: true });
+            audioRefs.current[name] = audio;
+        });
 
         return () => {
-            if (playersRef.current) {
-                Object.values(playersRef.current).forEach((p: any) => p.dispose());
-                playersRef.current = null;
-            }
-            Object.values(volumeNodesRef.current).forEach((n: any) => n.dispose());
-            volumeNodesRef.current = {};
+            Object.values(audioRefs.current).forEach(audio => { audio.pause(); audio.removeAttribute('src'); audio.load(); });
+            audioRefs.current = {};
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [status]); // Run once when completed
+    }, [status, trackSourcesKey, stopStemPlayers]);
 
-    // M/S/Volume: directly set Tone.Volume node — this is always in the signal path
     useEffect(() => {
-        const volMap = volumeNodesRef.current;
-        if (!volMap) return;
         Object.entries(tracks).forEach(([name, track]: [string, TrackState]) => {
-            const vol = volMap[name];
-            if (!vol) return;
-            // 隔離保護：如果當前不是分離器分頁 (isActive === false)，則強制靜音所有音軌，防止與變調器聲音重疊
-            const shouldMute = !isActive || track.muted || (soloedTrack !== null && name !== soloedTrack);
-            if (shouldMute) {
-                vol.mute = true;
-            } else {
-                vol.mute = false;
-                vol.volume.value = Tone.gainToDb(track.volume <= 0 ? 0.001 : track.volume);
-            }
+            const audio = audioRefs.current[name];
+            if (!audio) return;
+            audio.muted = !isActive || track.muted || (soloedTrack !== null && name !== soloedTrack);
+            audio.volume = Math.max(0, Math.min(1, track.volume));
         });
     }, [tracks, soloedTrack, isActive]);
 
     // Sync play/pause
     const togglePlay = async () => {
-        if (!playersRef.current) return;
-
-        const toneReady = Tone.start(); // synchronous call within gesture handler (iOS requirement)
+        if (Object.keys(audioRefs.current).length === 0) return;
 
         if (isPlaying) {
             stopStemPlayers();
@@ -541,17 +486,19 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                 animationRef.current = null;
             }
         } else {
-            await toneReady;
             const startOffset = Math.min(currentTime, Math.max(duration - 0.01, 0));
             playbackOffsetRef.current = startOffset;
-            playbackStartedAtRef.current = Tone.now();
             startStemPlayers(startOffset);
             setIsPlaying(true);
 
             // Start UI Update Loop
             const updateTime = () => {
-                const elapsed = Tone.now() - playbackStartedAtRef.current;
-                const nextTime = playbackOffsetRef.current + elapsed;
+                const allAudio = Object.values(audioRefs.current);
+                const master = audioRefs.current.vocals || allAudio[0];
+                const nextTime = master?.currentTime ?? playbackOffsetRef.current;
+                allAudio.forEach(audio => {
+                    if (audio !== master && Math.abs(audio.currentTime - nextTime) > 0.12) audio.currentTime = nextTime;
+                });
                 setCurrentTime(nextTime);
 
                 if (nextTime >= duration && duration > 0) {
@@ -582,7 +529,6 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
         if (isPlaying) {
             stopStemPlayers();
-            playbackStartedAtRef.current = Tone.now();
             startStemPlayers(targetTime);
         }
     };
@@ -597,9 +543,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
     // Handle user interaction on a track (pause master sync)
     const handleInteraction = () => {
-        // Since we are using Tone.js global transport, individual track interaction 
-        // via WaveformTrack (which usually seeks) should just call handleSeek.
-        // But WaveformTrack calls onInteractionStart.
+        // 個別波形互動仍由主播放器統一同步。
         if (isPlaying) {
             // Optional: Pause on interaction?
             // togglePlay();
@@ -629,12 +573,8 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
             cancelAnimationFrame(animationRef.current);
             animationRef.current = null;
         }
-        if (playersRef.current) {
-            Object.values(playersRef.current).forEach((p: any) => p.dispose());
-            playersRef.current = null;
-        }
-        Object.values(volumeNodesRef.current).forEach((n: any) => n.dispose());
-        volumeNodesRef.current = {};
+        Object.values(audioRefs.current).forEach(audio => { audio.pause(); audio.removeAttribute('src'); audio.load(); });
+        audioRefs.current = {};
 
         setJobId(null);
         setStatus('idle');
@@ -704,7 +644,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         }
     };
 
-    // Isolation: cleanup only this separator's players; do not touch Tone.Transport used by other tools.
+    // 離開分離器時只清理這組串流播放器。
     useEffect(() => {
         return () => {
             stopStemPlayers();

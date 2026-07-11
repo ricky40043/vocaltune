@@ -118,49 +118,17 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
         }
     };
 
-    // Load waveform (Visual)
+    // 輕量視覺波形：不下載並解碼每個大型 WAV，避免 6 軌完成時記憶體暴增。
     useEffect(() => {
-        let isCancelled = false;
-
-        const loadWaveform = async () => {
-            try {
-                setIsLoading(true);
-                if (!stableAudioUrl) throw new Error('No URL');
-
-                const response = await fetch(stableAudioUrl);
-                if (!response.ok) throw new Error('Fetch failed');
-
-                const arrayBuffer = await response.arrayBuffer();
-                const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-
-                // Decode strictly for visualization
-                const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-                if (!isCancelled) {
-                    const rawData = decodedBuffer.getChannelData(0);
-                    const samples = 300;
-                    const step = Math.floor(rawData.length / samples);
-                    const reducedData = new Float32Array(samples);
-
-                    for (let i = 0; i < samples; i++) {
-                        let sum = 0;
-                        for (let j = 0; j < step; j++) {
-                            sum += Math.abs(rawData[i * step + j] || 0);
-                        }
-                        reducedData[i] = Math.min(1, (sum / step) * 4);
-                    }
-                    setWaveformData(reducedData);
-                    setIsLoading(false);
-                }
-                audioContext.close();
-            } catch (err) {
-                if (!isCancelled) setIsLoading(false);
-            }
-        };
-
-        loadWaveform();
-        return () => { isCancelled = true; };
-    }, [stableAudioUrl]);
+        const samples = 300;
+        const seed = [...name].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+        const visual = new Float32Array(samples);
+        for (let i = 0; i < samples; i++) {
+            visual[i] = 0.18 + Math.abs(Math.sin((i + seed) * 0.17) * Math.cos((i + seed) * 0.043)) * 0.72;
+        }
+        setWaveformData(visual);
+        setIsLoading(false);
+    }, [name, stableAudioUrl]);
 
     // Draw Waveform
     useEffect(() => {

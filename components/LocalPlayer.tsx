@@ -164,6 +164,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('正在載入音訊...');
   const [isPremiumLoading, setIsPremiumLoading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
 
@@ -293,6 +294,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
     const loadFromUrl = async () => {
       setIsLoading(true);
+      setLoadingMessage('正在下載音訊資料...');
       setFileName('下載的音樂');
       setIsPlaying(false);
       setIsLoaded(false);
@@ -314,9 +316,11 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
         // Tone.start() intentionally not called here — requires user gesture on mobile.
         // It is called in togglePlay() instead.
         const response = await fetch(audioFileUrl);
+        if (!response.ok) throw new Error(`音訊下載失敗 (${response.status})`);
         const arrayBuffer = await response.arrayBuffer();
 
         // Decode with timeout
+        setLoadingMessage('正在解碼音訊，請稍候...');
         const decodePromise = Tone.context.decodeAudioData(arrayBuffer);
         const timeoutPromise = new Promise<AudioBuffer>((_, reject) =>
           setTimeout(() => reject(new Error("Audio decoding timed out.")), 15000)
@@ -369,6 +373,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
         setDuration(audioBuffer.duration);
         setIsLoaded(true);
+        setLoadingMessage('正在分析 BPM 與調性...');
 
         newPlayer.playbackRate = playbackRate;
         newPlayer.detune = 0;
@@ -849,6 +854,16 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
           <RotateCcw size={16} /> 重置
         </button>
       </div>
+
+      {isLoading && (
+        <div className="flex items-center gap-3 rounded-xl border border-blue-400/30 bg-blue-950/50 px-4 py-3 text-blue-100" role="status" aria-live="polite">
+          <Loader2 className="shrink-0 animate-spin text-blue-400" size={20} />
+          <div>
+            <div className="text-sm font-bold">變調器載入中</div>
+            <div className="text-xs text-blue-300">{loadingMessage}</div>
+          </div>
+        </div>
+      )}
 
       <div onClick={() => fileInputRef.current?.click()} className={`border-2 border-dashed rounded-2xl p-8 md:p-10 text-center cursor-pointer transition-all relative overflow-hidden group ${isLoaded ? 'border-brand-accent bg-brand-800/50' : 'border-gray-600 hover:border-brand-glow hover:bg-gray-800'}`}>
         <input ref={fileInputRef} type="file" accept="audio/*" onChange={handleFileChange} className="hidden" />

@@ -23,6 +23,8 @@ jobs:
         run: PYTHONPATH=backend-api python -m unittest backend-api/test_media_policy.py -v
       - name: Separation history recovery tests
         run: PYTHONPATH=backend-api python -m unittest backend-api/test_history_tracks.py -v
+      - name: Separation progress tests
+        run: PYTHONPATH=backend-api python -m unittest backend-api/test_media_progress.py -v
 
   frontend:
     name: Frontend
