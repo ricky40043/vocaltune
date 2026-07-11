@@ -8,6 +8,17 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "db_data" / "vocaltune.db"
 SEPARATED_DIR = BASE_DIR / "separated"
 
+def expected_track_names(stems: str) -> list:
+    return ["vocals", "drums", "bass", "other"] if str(stems) == "4" else ["vocals", "drums", "bass", "guitar", "piano", "other"]
+
+def get_existing_track_urls(job_id: str, stems: str) -> dict:
+    """以磁碟為準重建音軌 URL；只有指定軌數完整時才回傳。"""
+    output_dir = SEPARATED_DIR / job_id
+    names = expected_track_names(stems)
+    if not all((output_dir / f"{name}.wav").is_file() for name in names):
+        return {}
+    return {name: f"/files/separated/{job_id}/{name}.wav" for name in names}
+
 def get_db_connection():
     """取得資料庫連線，設定 timeout 避免鎖庫，並啟用 row_factory 以便回傳 dict"""
     # 確保資料夾存在以防止 Docker 掛載路徑錯誤
@@ -115,13 +126,14 @@ def get_cached_youtube_song(video_id: str, stems: str) -> dict:
         row = cursor.fetchone()
         if row:
             song = dict(row)
-            # 檢查實體檔案（特別是關鍵的 vocals.wav）是否確實存在
+            # 必須確認指定軌數全部存在，不能只憑 vocals.wav 判定快取完整。
             job_id = song["job_id"]
-            vocals_path = SEPARATED_DIR / job_id / "vocals.wav"
-            if vocals_path.exists():
+            disk_tracks = get_existing_track_urls(job_id, song["stems"])
+            if disk_tracks:
+                song["tracks_json"] = json.dumps(disk_tracks, ensure_ascii=False)
                 return song
             else:
-                logging.warning(f"Cache Hit in DB for job {job_id} but vocals.wav file not found on disk. Invalidating cache.")
+                logging.warning(f"Cache Hit in DB for job {job_id} but required tracks are incomplete. Invalidating cache.")
         return None
     finally:
         conn.close()
@@ -180,6 +192,17 @@ def get_user_history_list(username: str) -> list:
                     item["tracks"] = {}
             else:
                 item["tracks"] = {}
+
+            # completed 必須以磁碟實體檔案為準。tracks_json 遺失或損壞時可自動重建；
+            # 實體音軌不完整時改為 error，避免前端顯示空白的完成頁。
+            if item.get("status") == "completed":
+                disk_tracks = get_existing_track_urls(item["job_id"], item["stems"])
+                if disk_tracks:
+                    item["tracks"] = disk_tracks
+                else:
+                    item["status"] = "error"
+                    item["error_message"] = "分離音軌檔案不完整，請重新分離"
+                    item["tracks"] = {}
             
             # 自動補全 original 軌道 URL，供前端播放器對比或載入
             if item.get("file_path") and isinstance(item["tracks"], dict):

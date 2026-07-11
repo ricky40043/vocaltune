@@ -116,15 +116,22 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
     // 被動監聽全域歷史紀錄抽屜的載入動作
     useEffect(() => {
-        if (loadedHistoryJob && loadedHistoryJob.job_id !== jobId) {
+        if (loadedHistoryJob) {
             console.log('[AISeparator] Received loaded history job from global drawer:', loadedHistoryJob.job_id);
             handleLoadJob(loadedHistoryJob);
         }
-    }, [loadedHistoryJob, jobId]);
+    }, [loadedHistoryJob]);
 
     // 載入歷史紀錄到播放器
     const handleLoadJob = (item: any) => {
-        if (!item.tracks) return;
+        const playableTracks = Object.entries(item.tracks || {}).filter(([name, url]) => name !== 'original' && typeof url === 'string' && url.length > 0);
+        if (item.status !== 'completed' || playableTracks.length === 0) {
+            setJobId(item.job_id || null);
+            setTracks({});
+            setStatus('error');
+            setError(item.error_message || '分離音軌不完整，請重新分離');
+            return;
+        }
         
         // 停止之前的播放
         stopStemPlayers();
@@ -140,7 +147,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         setStems(item.stems);
         
         const initialTracks: Record<string, TrackState> = {};
-        Object.entries(item.tracks).forEach(([name, url]) => {
+        Object.entries(item.tracks || {}).forEach(([name, url]) => {
             // 保留原始音軌（original）供播放器對比，但預設音量設為 0 並靜音，避免直接與分離音軌混音
             initialTracks[name] = {
                 url: `${API_BASE_URL}${url}`,
