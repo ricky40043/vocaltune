@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Music2, Gauge, Play, Pause, RotateCcw, Upload, AlertCircle } from 'lucide-react';
+import { validateMediaFile } from '../utils/mediaPolicy';
 
 interface PitcherProps {
     audioFileUrl?: string;
@@ -67,9 +68,12 @@ export const Pitcher: React.FC<PitcherProps> = ({ audioFileUrl }) => {
     }, [playbackRate]);
 
     // File upload handler
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        try { await validateMediaFile(file); }
+        catch (err) { setError(err instanceof Error ? err.message : '無法讀取媒體長度'); e.target.value = ''; return; }
 
         setError(null);
         const url = URL.createObjectURL(file);

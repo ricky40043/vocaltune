@@ -9,6 +9,7 @@ import { Pitcher } from './components/Pitcher';
 import { MidiTranscriber } from './components/MidiTranscriber';
 import { KaraokePlayer } from './components/KaraokePlayer';
 import { SongRequestSystem } from './components/SongRequestSystem';
+import { ADMIN_TOKEN_KEY, adminHeaders, isAdminMode, validateMediaFile } from './utils/mediaPolicy';
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
@@ -46,6 +47,42 @@ const resolveAudioUrl = (fileUrl: string | null) => {
 type TabType = 'source' | 'pitcher' | 'splitter' | 'transcriber' | 'karaoke' | 'request';
 
 export default function App() {
+    const [showAdminLogin, setShowAdminLogin] = useState(false);
+    const [adminPassword, setAdminPassword] = useState('');
+    const [adminError, setAdminError] = useState<string | null>(null);
+    const [adminMode, setAdminMode] = useState(isAdminMode());
+
+    React.useEffect(() => {
+        const handleAdminShortcut = (event: KeyboardEvent) => {
+            if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'a') {
+                event.preventDefault();
+                setAdminPassword('');
+                setAdminError(null);
+                setShowAdminLogin(true);
+            }
+        };
+        window.addEventListener('keydown', handleAdminShortcut);
+        return () => window.removeEventListener('keydown', handleAdminShortcut);
+    }, []);
+
+    const loginAdminMode = async (event: React.FormEvent) => {
+        event.preventDefault();
+        setAdminError(null);
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/admin-mode/login`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: adminPassword }),
+            });
+            const data = await readApiJson<{ token?: string; detail?: string }>(response);
+            if (!response.ok || !data.token) { setAdminError(data.detail || '管理密碼錯誤'); return; }
+            sessionStorage.setItem(ADMIN_TOKEN_KEY, data.token);
+            setAdminMode(true);
+            setShowAdminLogin(false);
+            setAdminPassword('');
+        } catch (error) {
+            setAdminError(getApiErrorMessage(error));
+        }
+    };
     // Page split:
     //   /ktv -> KTV mode (卡拉OK + 點歌)
     //   /    -> Studio mode (音樂來源 + 變調器 + 分離器 + 採譜)
@@ -187,7 +224,7 @@ export default function App() {
         try {
             const response = await fetch(`${API_BASE_URL}/api/download`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: adminHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ youtube_url: url }),
             });
 
@@ -557,9 +594,11 @@ export default function App() {
                                     type="file"
                                     accept=".mp3, .wav, .m4a, .flac, .ogg, .aac, .mp4, audio/*"
                                     className="hidden"
-                                    onChange={(e) => {
+                                    onChange={async (e) => {
                                         if (e.target.files?.[0]) {
                                             const file = e.target.files[0];
+                                            try { await validateMediaFile(file); }
+                                            catch (error) { setUrlError(error instanceof Error ? error.message : '無法讀取媒體長度'); e.target.value = ''; return; }
                                             const url = URL.createObjectURL(file);
                                             setUrl(''); // Clear YouTube URL to avoid state pollution
                                             setUrlError(null);
@@ -596,6 +635,27 @@ export default function App() {
                         </div>
                     )}
                 </div>
+
+                {adminMode && (
+                    <div className="fixed bottom-4 right-4 z-40 rounded-full border border-amber-400/50 bg-amber-950/90 px-4 py-2 text-xs font-bold text-amber-200 shadow-lg">
+                        ADMIN 模式｜不限 10 分鐘
+                    </div>
+                )}
+
+                {showAdminLogin && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="管理模式登入">
+                        <form onSubmit={loginAdminMode} className="w-full max-w-sm rounded-2xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
+                            <h2 className="mb-2 text-xl font-bold text-white">進入 ADMIN 模式</h2>
+                            <p className="mb-4 text-sm text-gray-400">驗證後，本分頁可處理超過 10 分鐘的媒體。</p>
+                            <input autoFocus type="password" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} placeholder="管理密碼" className="w-full rounded-xl border border-gray-700 bg-gray-950 px-4 py-3 text-white outline-none focus:border-amber-400" />
+                            {adminError && <p className="mt-2 text-sm text-red-400">{adminError}</p>}
+                            <div className="mt-5 flex justify-end gap-2">
+                                <button type="button" onClick={() => setShowAdminLogin(false)} className="rounded-lg px-4 py-2 text-gray-300 hover:bg-gray-800">取消</button>
+                                <button type="submit" className="rounded-lg bg-amber-500 px-4 py-2 font-bold text-black hover:bg-amber-400">驗證</button>
+                            </div>
+                        </form>
+                    </div>
+                )}
 
                 {/* TAB 2: PITCHER - 變調器 */}
                 <div style={{ display: activeTab === 'pitcher' ? 'block' : 'none' }} className="animate-fade-in max-w-4xl mx-auto">

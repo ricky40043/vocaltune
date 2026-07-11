@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Music, Loader2, Download, AlertCircle, CheckCircle2, FileAudio, Upload, HelpCircle } from 'lucide-react';
+import { adminHeaders, validateMediaFile } from '../utils/mediaPolicy';
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
@@ -56,6 +57,9 @@ export const MidiTranscriber: React.FC<MidiTranscriberProps> = ({ separationJobI
         const file = event.target.files?.[0];
         if (!file) return;
 
+        try { await validateMediaFile(file); }
+        catch (err) { setError(err instanceof Error ? err.message : '無法讀取媒體長度'); event.target.value = ''; return; }
+
         setLocalFile(file);
         setLocalFileUrl(URL.createObjectURL(file));
         setIsUploading(true);
@@ -68,6 +72,7 @@ export const MidiTranscriber: React.FC<MidiTranscriberProps> = ({ separationJobI
 
             const response = await fetch(`${API_BASE_URL}/api/upload`, {
                 method: 'POST',
+                headers: adminHeaders(),
                 body: formData,
             });
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, Loader2, Upload, Download, Mic, Youtube, MicOff, SkipForward, Plus, Minus, Music } from 'lucide-react';
 import * as Tone from 'tone';
 import { getGrainSettings } from '../utils/audioQuality';
+import { adminHeaders, validateMediaFile } from '../utils/mediaPolicy';
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
@@ -145,6 +146,7 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
 
                 const uploadRes = await fetch(`${API_BASE_URL}/api/upload`, {
                     method: 'POST',
+                    headers: adminHeaders(),
                     body: formData
                 });
 
@@ -165,7 +167,7 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
             // Start Karaoke Job
             const res = await fetch(`${API_BASE_URL}/api/karaoke/process`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: adminHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ youtube_url: targetUrl })
             });
 
@@ -557,9 +559,10 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                                 accept="video/*,audio/*"
                                 className="hidden"
                                 id="karaoke-upload"
-                                onChange={(e) => {
+                                onChange={async (e) => {
                                     if (e.target.files?.[0]) {
-                                        setLocalFile(e.target.files[0]);
+                                        try { await validateMediaFile(e.target.files[0]); setLocalFile(e.target.files[0]); }
+                                        catch (err) { setError(err instanceof Error ? err.message : '無法讀取媒體長度'); e.target.value = ''; }
                                     }
                                 }}
                             />

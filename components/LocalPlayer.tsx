@@ -3,6 +3,7 @@ import * as Tone from 'tone';
 import { Play, Pause, Upload, AlertCircle, Loader2, Music, Zap, Volume2, Mic, MicOff, Sliders, Activity, Layers, ArrowRight, RotateCcw, Repeat, Plus, Minus, Download, Save, Hand } from 'lucide-react';
 import { ControlSlider } from './ControlSlider';
 import { getGrainSettings } from '../utils/audioQuality';
+import { adminHeaders, validateMediaFile } from '../utils/mediaPolicy';
 
 const NOTES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 
@@ -460,6 +461,7 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
 
             const uploadRes = await fetch(`${API_BASE_URL}/api/upload`, {
               method: 'POST',
+              headers: adminHeaders(),
               body: formData,
             });
 
@@ -560,9 +562,11 @@ export const LocalPlayer: React.FC<LocalPlayerProps> = ({ audioFileUrl, onReset,
     onReset?.();
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      try { await validateMediaFile(file); }
+      catch (err) { window.alert(err instanceof Error ? err.message : '無法讀取媒體長度'); event.target.value = ''; return; }
       onFileLoaded?.(file);
       event.target.value = '';
     }
