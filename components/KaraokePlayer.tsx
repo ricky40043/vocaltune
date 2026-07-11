@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Pause, Loader2, Upload, Download, Mic, Youtube, MicOff, SkipForward, Plus, Minus, Music } from 'lucide-react';
+import { Play, Pause, Loader2, Download, Mic, Youtube, SkipForward, Plus, Minus, Music, ListMusic } from 'lucide-react';
 import * as Tone from 'tone';
 import { getGrainSettings } from '../utils/audioQuality';
-import { adminHeaders, validateMediaFile } from '../utils/mediaPolicy';
+import { adminHeaders } from '../utils/mediaPolicy';
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
@@ -13,9 +13,10 @@ interface KaraokePlayerProps {
     youtubeUrl?: string; // From App input
     isActive?: boolean;
     currentUser?: string | null;
+    onOpenSongRequest?: () => void;
 }
 
-export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActive, currentUser }) => {
+export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActive, currentUser, onOpenSongRequest }) => {
     // State
     const [jobId, setJobId] = useState<string | null>(null);
     const [status, setStatus] = useState<'idle' | 'processing' | 'completed' | 'error'>('idle');
@@ -30,9 +31,9 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
     // History list for auto-play next
     const [historyList, setHistoryList] = useState<HistoryItem[]>([]);
 
-    // Local Upload State
-    const [localFile, setLocalFile] = useState<File | null>(null);
-    const [isUploading, setIsUploading] = useState(false);
+    const [videoPlaying, setVideoPlaying] = useState(false);
+    const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+    const [videoDuration, setVideoDuration] = useState(0);
 
     // Refs
     // Refs
@@ -136,30 +137,10 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
         setInstrumentalUrl(null);
 
         try {
-            let targetUrl = youtubeUrl;
-
-            // Handle Local File Upload first if present
-            if (localFile) {
-                setMessage('正在上傳影片...');
-                const formData = new FormData();
-                formData.append('file', localFile);
-
-                const uploadRes = await fetch(`${API_BASE_URL}/api/upload`, {
-                    method: 'POST',
-                    headers: adminHeaders(),
-                    body: formData
-                });
-
-                if (!uploadRes.ok) throw new Error("影片上傳失敗");
-
-                const uploadData = await uploadRes.json();
-                // Pass the file path (relative to downloads) or full URL
-                // Backend expects "youtube_url" field but can take path
-                targetUrl = uploadData.file_path || uploadData.file_url;
-            }
+            const targetUrl = youtubeUrl;
 
             if (!targetUrl) {
-                setError("請輸入 YouTube 連結或上傳影片");
+                setError("請先到點歌頁選擇 YouTube 歌曲");
                 setStatus('idle');
                 return;
             }
@@ -508,6 +489,17 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
         setPitchSemitones(0);
     };
 
+    const toggleVideoPlayback = () => {
+        const video = videoRef.current;
+        if (!video) return;
+        if (video.paused) void video.play(); else video.pause();
+    };
+
+    const formatVideoTime = (seconds: number) => {
+        const safe = Number.isFinite(seconds) ? seconds : 0;
+        return `${Math.floor(safe / 60)}:${Math.floor(safe % 60).toString().padStart(2, '0')}`;
+    };
+
     return (
         <div className="w-full p-6 flex flex-col lg:flex-row gap-6 items-start">
             {/* Left Side: Main Player Content */}
@@ -526,7 +518,6 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                 {/* Input Section */}
                 {status === 'idle' || status === 'error' ? (
                     <div className="space-y-6 animate-fade-in">
-                        {/* YouTube Source Option */}
                         {youtubeUrl && (
                             <div className="bg-gray-800/50 p-4 rounded-lg border border-purple-500/30">
                                 <div className="flex items-center space-x-3 mb-2">
@@ -535,7 +526,7 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                                 </div>
                                 <div className="text-sm text-gray-500 truncate mb-4 pl-8">{youtubeUrl}</div>
                                 <button
-                                    onClick={() => { setLocalFile(null); startProcessing(); }}
+                                    onClick={() => startProcessing()}
                                     className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-bold transition flex items-center justify-center space-x-2 shadow-lg shadow-purple-900/40"
                                 >
                                     <Mic className="w-5 h-5" />
@@ -543,45 +534,16 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                                 </button>
                             </div>
                         )}
-
-                        {/* Divider */}
-                        {youtubeUrl && (
-                            <div className="relative py-2">
-                                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-800"></div></div>
-                                <div className="relative flex justify-center"><span className="bg-gray-900 px-3 text-sm text-gray-500">或</span></div>
+                        {!youtubeUrl && (
+                            <div className="rounded-2xl border border-purple-500/30 bg-gradient-to-br from-purple-950/60 to-gray-900 p-8 text-center">
+                                <ListMusic className="mx-auto mb-4 h-12 w-12 text-purple-400" />
+                                <h3 className="text-xl font-bold text-white">從 YouTube 點歌開始</h3>
+                                <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">卡拉 OK 會自動使用點歌清單，不再需要另外上傳影片。</p>
+                                <button onClick={onOpenSongRequest} className="mt-6 rounded-xl bg-purple-600 px-6 py-3 font-bold text-white transition hover:bg-purple-500">
+                                    前往 YouTube 點歌
+                                </button>
                             </div>
                         )}
-
-                        {/* Local File Option */}
-                        <div className="border-2 border-dashed border-gray-700 rounded-xl p-8 text-center hover:border-gray-500 transition-colors bg-gray-800/20">
-                            <input
-                                type="file"
-                                accept="video/*,audio/*"
-                                className="hidden"
-                                id="karaoke-upload"
-                                onChange={async (e) => {
-                                    if (e.target.files?.[0]) {
-                                        try { await validateMediaFile(e.target.files[0]); setLocalFile(e.target.files[0]); }
-                                        catch (err) { setError(err instanceof Error ? err.message : '無法讀取媒體長度'); e.target.value = ''; }
-                                    }
-                                }}
-                            />
-                            <label htmlFor="karaoke-upload" className="cursor-pointer flex flex-col items-center">
-                                <Upload className="w-12 h-12 text-gray-500 mb-3" />
-                                <span className="text-gray-300 font-medium mb-1">
-                                    {localFile ? localFile.name : "上傳本機影片/音訊"}
-                                </span>
-                                <span className="text-gray-500 text-sm">支援 MP4, MOV, MP3...</span>
-                            </label>
-                            {localFile && (
-                                <button
-                                    onClick={() => { startProcessing(); }}
-                                    className="mt-4 px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-full font-medium transition"
-                                >
-                                    開始處理
-                                </button>
-                            )}
-                        </div>
                     </div>
                 ) : null}
 
@@ -623,20 +585,20 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                 {/* Completed State (Video Player) */}
                 {status === 'completed' && videoUrl && (
                     <div className="space-y-6 animate-fade-in">
-                        {/* Mobile silent mode hint */}
-                        <div className="md:hidden px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-2 text-yellow-200 text-xs">
-                            <Music className="w-3 h-3 shrink-0" />
-                            <span>若沒有聲音，請確認手機側邊靜音開關已關閉。</span>
-                        </div>
-                        <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-2xl relative group">
+                        <div className="overflow-hidden rounded-xl border border-gray-700 bg-black shadow-2xl">
+                            <div className="aspect-video relative">
                             <video
                                 key={videoUrl}
                                 ref={videoRef}
                                 src={videoUrl}
                                 className="w-full h-full object-contain"
-                                controls
                                 playsInline
                                 preload="metadata"
+                                onClick={toggleVideoPlayback}
+                                onPlay={() => setVideoPlaying(true)}
+                                onPause={() => setVideoPlaying(false)}
+                                onTimeUpdate={(event) => setVideoCurrentTime(event.currentTarget.currentTime)}
+                                onLoadedMetadata={(event) => setVideoDuration(event.currentTarget.duration || 0)}
                                 onEnded={() => {
                                     // Auto-play next song
                                     if (historyList.length > 0 && jobId) {
@@ -650,6 +612,19 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                             {vocalsUrl && (
                                 <audio ref={vocalsRef} src={vocalsUrl} className="hidden" preload="auto" />
                             )}
+                            </div>
+                            <div className="flex items-center gap-3 bg-gray-950 px-3 py-3">
+                                <button type="button" onClick={toggleVideoPlayback} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-purple-600 text-white hover:bg-purple-500" aria-label={videoPlaying ? '暫停' : '播放'}>
+                                    {videoPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
+                                </button>
+                                <span className="w-10 text-right text-xs font-mono text-gray-400">{formatVideoTime(videoCurrentTime)}</span>
+                                <input type="range" min={0} max={videoDuration || 0} step={0.1} value={Math.min(videoCurrentTime, videoDuration || 0)} onChange={(event) => {
+                                    const next = Number(event.target.value);
+                                    if (videoRef.current) videoRef.current.currentTime = next;
+                                    setVideoCurrentTime(next);
+                                }} className="h-2 min-w-0 flex-1 cursor-pointer accent-purple-500" aria-label="影片進度" />
+                                <span className="w-10 text-xs font-mono text-gray-400">{formatVideoTime(videoDuration)}</span>
+                            </div>
                         </div>
 
                         {/* Pitch Shift Controls */}
@@ -709,9 +684,9 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                                         <div className="w-12 h-7 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-purple-600"></div>
                                     </div>
                                     <div className="flex items-center space-x-2">
-                                        {playVocals ? <Mic className="w-5 h-5 text-purple-400" /> : <MicOff className="w-5 h-5 text-gray-400" />}
+                                        <Mic className={`w-5 h-5 ${playVocals ? 'text-purple-400' : 'text-gray-400'}`} />
                                         <span className={`font-bold transition-colors ${playVocals ? 'text-white' : 'text-gray-400'}`}>
-                                            {playVocals ? "人聲播放中" : "人聲已靜音"}
+                                            {playVocals ? "人聲開啟" : "人聲關閉"}
                                         </span>
                                     </div>
                                 </label>

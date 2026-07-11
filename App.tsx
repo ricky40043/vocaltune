@@ -694,6 +694,7 @@ export default function App() {
                         youtubeUrl={downloadedFileUrl && !downloadedFileUrl.startsWith('blob:') ? (url && !urlError ? url : undefined) : undefined}
                         isActive={activeTab === 'karaoke'}
                         currentUser={currentUser}
+                        onOpenSongRequest={() => setActiveTab('request')}
                     />
                 </div>
 

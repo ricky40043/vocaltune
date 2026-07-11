@@ -20,6 +20,7 @@ from pydantic import BaseModel
 import asyncio
 import json
 import media_policy
+from media_progress import map_demucs_progress
 
 # Directories
 BASE_DIR = Path(__file__).parent
@@ -755,7 +756,7 @@ async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
     try:
         update_job_status(job_id, {
             "status": "separating",
-            "progress": 10,
+            "progress": 0,
             "message": "正在載入 AI 模型..."
         })
         
@@ -824,11 +825,12 @@ async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
                             # Get last 3 chars which should be the number
                             percent = percent_str[-3:].strip()
                             if percent.isdigit():
-                                progress_value = int(percent)
+                                demucs_percent = int(percent)
+                                progress_value = map_demucs_progress(demucs_percent)
                                 update_job_status(job_id, {
                                     "status": "separating",
                                     "progress": progress_value,
-                                    "message": f"AI 音軌分離中... {progress_value}%"
+                                    "message": f"AI 音軌分離中... {demucs_percent}%"
                                 })
                         except:
                             pass
@@ -848,7 +850,7 @@ async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
         
         update_job_status(job_id, {
             "status": "processing",
-            "progress": 80,
+            "progress": 90,
             "message": "正在處理分離後的音軌..."
         })
         
