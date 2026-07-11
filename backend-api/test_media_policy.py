@@ -44,14 +44,14 @@ class MediaPolicyTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 401)
 
     def test_valid_admin_token_bypasses_limit(self):
-        token = media_policy.authenticate("1qaz@WSX")
+        token = media_policy.authenticate("go for it")
         request = FakeRequest(token)
         self.assertTrue(media_policy.is_admin_request(request))
         media_policy.enforce_duration(3600, request)
 
     def test_expired_admin_token_is_rejected(self):
         with patch.object(time, "time", return_value=100):
-            token = media_policy.authenticate("1qaz@WSX")
+            token = media_policy.authenticate("go for it")
         with patch.object(time, "time", return_value=100 + media_policy.ADMIN_MODE_TTL_SECONDS + 1):
             self.assertFalse(media_policy.is_admin_request(FakeRequest(token)))
 

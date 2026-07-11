@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     Play, Pause, Loader2, AlertCircle, CheckCircle2,
-    Layers, Download, Volume2, Upload, Music
+    Layers, Download, Volume2, Upload, Music, RefreshCw
 } from 'lucide-react';
 import { WaveformTrack } from './WaveformTrack';
 import { adminHeaders, validateMediaFile } from '../utils/mediaPolicy';
@@ -72,6 +72,8 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
+    const [failedTracks, setFailedTracks] = useState<string[]>([]);
+    const [audioLoadVersion, setAudioLoadVersion] = useState(0);
 
     // MIDI conversion state: { trackName: { status: 'idle' | 'loading' | 'completed', url?: string } }
     const [midiStatus, setMidiStatus] = useState<Record<string, { status: string; url?: string }>>({});
@@ -152,6 +154,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
             };
         });
         setTracks(initialTracks);
+        setFailedTracks([]);
         setStatus('completed');
         setError(null);
 
@@ -373,6 +376,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                         };
                     });
                     setTracks(initialTracks);
+                    setFailedTracks([]);
 
                     clearInterval(pollInterval);
                 } else if (data.status === 'error') {
@@ -453,16 +457,21 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
             audio.src = track.url;
             audio.addEventListener('loadedmetadata', () => {
                 if (name === 'vocals') setDuration(audio.duration || 0);
+                setFailedTracks(current => current.filter(trackName => trackName !== name));
             }, { once: true });
-            audio.addEventListener('error', () => setError(`${name} 音軌載入失敗，請重新整理或重新分離`), { once: true });
+            audio.addEventListener('error', () => {
+                setFailedTracks(current => current.includes(name) ? current : [...current, name]);
+                setError(`${name} 音軌載入失敗，可按「重新載入音軌」再試一次`);
+            }, { once: true });
             audioRefs.current[name] = audio;
+            audio.load();
         });
 
         return () => {
             Object.values(audioRefs.current).forEach(audio => { audio.pause(); audio.removeAttribute('src'); audio.load(); });
             audioRefs.current = {};
         };
-    }, [status, trackSourcesKey, stopStemPlayers]);
+    }, [status, trackSourcesKey, audioLoadVersion, stopStemPlayers]);
 
     useEffect(() => {
         Object.entries(tracks).forEach(([name, track]: [string, TrackState]) => {
@@ -584,6 +593,13 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         setCurrentTime(0);
         setDuration(0);
         setError(null);
+        setFailedTracks([]);
+    };
+
+    const retryTrackLoading = () => {
+        setError(null);
+        setFailedTracks([]);
+        setAudioLoadVersion(version => version + 1);
     };
 
     // Handle MIDI transcription
@@ -795,6 +811,20 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                     <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 flex items-center gap-2 text-green-400">
                         <CheckCircle2 size={16} />
                         <span className="text-sm font-bold">分離完成！已產生 {Object.keys(tracks).length} 個音軌</span>
+                    </div>
+
+                    <div className="flex items-start justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200">
+                        <div className="flex min-w-0 items-start gap-2">
+                            <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                            <div className="text-xs leading-relaxed">
+                                <span className="font-bold">手機載入提醒：</span>
+                                大型 6 軌音樂首次載入可能較久，請保持頁面開啟。若網路中斷或裝置釋放音訊，可直接重新載入，不必重新分離。
+                                {failedTracks.length > 0 && <div className="mt-1 font-bold text-red-300">載入失敗：{failedTracks.join('、')}</div>}
+                            </div>
+                        </div>
+                        <button type="button" onClick={retryTrackLoading} className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-500/20 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-500/30">
+                            <RefreshCw size={14} /> 重新載入音軌
+                        </button>
                     </div>
 
                     {/* Playback Controls */}

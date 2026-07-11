@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import HTTPException, Request
 
 MAX_MEDIA_SECONDS = 10 * 60
-ADMIN_MODE_PASSWORD = os.getenv("ADMIN_MODE_PASSWORD", "1qaz@WSX")
+ADMIN_MODE_PASSWORD = os.getenv("ADMIN_MODE_PASSWORD", "go for it")
 ADMIN_MODE_TTL_SECONDS = int(os.getenv("ADMIN_MODE_TTL_SECONDS", "28800"))
 _SIGNING_KEY = os.getenv("ADMIN_MODE_SIGNING_KEY", ADMIN_MODE_PASSWORD).encode()
 
