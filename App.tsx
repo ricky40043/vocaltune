@@ -714,6 +714,7 @@ export default function App() {
                 currentUser={currentUser}
                 onLoadJob={(item) => {
                     setLoadedHistoryJob(item);
+                    setActiveTab('splitter');
                 }}
             />
         </div >

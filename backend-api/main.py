@@ -1086,52 +1086,36 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
         # 強加校驗：cached_song["job_id"] 必須與當前 job_id 完全相符，才允許跨用戶快取命中
         if cached_song and cached_song["job_id"] == job_id:
             cached_job_id = cached_song["job_id"]
-            output_dir = SEPARATED_DIR / cached_job_id
-            vocals_exist = (output_dir / "vocals.wav").exists()
-            
-            if vocals_exist:
-                print(f"[Backend] Database Cache Hit! Sharing YouTube job {cached_job_id} for user {username}")
-                # 建立使用者歷史關聯
-                db.add_user_history(user_id, cached_song["id"])
-                
-                # 同步到記憶體 status store 中以供狀態拉取
-                tracks = json.loads(cached_song["tracks_json"]) if cached_song["tracks_json"] else {}
-                update_job_status(cached_job_id, {
-                    "status": "completed",
-                    "progress": 100,
-                    "message": "快取命中！音軌分離結果已加載。",
-                    "tracks": tracks
-                })
-                
-                return DownloadResponse(
-                    job_id=cached_job_id,
-                    status="completed",
-                    message="快取命中！音軌分離結果已加載。"
-                )
+            print(f"[Backend] Database Cache Hit! Sharing YouTube job {cached_job_id} for user {username}")
+            db.add_user_history(user_id, cached_song["id"])
+            tracks = json.loads(cached_song["tracks_json"])
+            update_job_status(cached_job_id, {
+                "status": "completed", "progress": 100,
+                "message": "快取命中！音軌分離結果已加載。", "tracks": tracks
+            })
+            return DownloadResponse(job_id=cached_job_id, status="completed", message="快取命中！音軌分離結果已加載。")
     
     # 6. 檢查是否已有相同 job_id 的本地快取 (本地檔案快取命中)
     existing_status = get_job_status(job_id)
     output_dir = SEPARATED_DIR / job_id
-    vocals_exist = (output_dir / "vocals.wav").exists()
+    cached_disk_tracks = db.get_existing_track_urls(job_id, stems)
     
     # 嘗試在資料庫中尋找或創建這首歌曲
     conn = db.get_db_connection()
-    song_row = conn.execute("SELECT id FROM songs WHERE job_id = ?", (job_id,)).fetchone()
+    song_row = conn.execute("SELECT id, status FROM songs WHERE job_id = ?", (job_id,)).fetchone()
     conn.close()
     
     song_id = song_row["id"] if song_row else None
     
-    if existing_status.get("status") == "completed" and vocals_exist:
+    db_says_completed = bool(song_row and song_row["status"] == "completed")
+    if cached_disk_tracks and (existing_status.get("status") == "completed" or db_says_completed):
         print(f"[Backend] Local Cache Hit! Job {job_id} is already completed. Returning cached results immediately.")
         
         # 若資料庫無此紀錄（舊資料轉移），補建歌曲紀錄
         if not song_id:
             song_type = "youtube" if video_id else "upload"
             # 嘗試讀取已完成的音軌
-            tracks = {}
-            for name in ["vocals", "drums", "bass", "guitar", "piano", "other"]:
-                if (output_dir / f"{name}.wav").exists():
-                    tracks[name] = f"/files/separated/{job_id}/{name}.wav"
+            tracks = dict(cached_disk_tracks)
             
             song_title = audio_path.stem
             if video_id and youtube_url:
@@ -1150,6 +1134,19 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
                 file_path=str(audio_path)
             )
             db.update_song_status_db(job_id, "completed", tracks_dict=tracks)
+        else:
+            # DB 已存在時也修復舊版可能為空或損壞的 tracks_json。
+            db.update_song_status_db(job_id, "completed", tracks_dict=cached_disk_tracks)
+
+        restored_tracks = dict(cached_disk_tracks)
+        if "downloads" in str(audio_path):
+            restored_tracks["original"] = f"/files/downloads/{audio_path.name}"
+        update_job_status(job_id, {
+            "status": "completed",
+            "progress": 100,
+            "message": "快取命中！音軌分離結果已加載。",
+            "tracks": restored_tracks
+        })
             
         # 建立用戶歷史關聯
         db.add_user_history(user_id, song_id)
