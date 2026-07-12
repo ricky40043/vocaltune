@@ -128,6 +128,8 @@ async def queue_processor():
                                 for item in q:
                                     if item["id"] == job_id:
                                         item["progress"] = current_status.get("progress", 0)
+                                        item["message"] = current_status.get("message", "")
+                                        item["phase"] = current_status.get("status", "processing")
                                 save_queue(q, user)
                         
                         await task

@@ -26,6 +26,8 @@ interface QueueItem {
     status: 'pending' | 'processing' | 'completed' | 'error';
     progress: number;
     error?: string;
+    message?: string;
+    phase?: string;
 }
 
 interface SongRequestSystemProps {
