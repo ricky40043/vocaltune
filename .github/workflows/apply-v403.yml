@@ -1,0 +1,38 @@
+name: Apply v4.0.3 download exports
+
+on:
+  push:
+    branches: [feat/download-mp3-mp4-v4.0.3]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/download-mp3-mp4-v4.0.3
+          fetch-depth: 0
+
+      - name: Apply source changes
+        run: python scripts/apply_v403.py
+
+      - name: Validate backend syntax
+        run: python -m py_compile backend-api/main.py backend-api/start.py
+
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit generated source
+        run: |
+          rm -f .github/workflows/apply-v403.yml scripts/apply_v403.py
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: add unlimited MP3 MP4 downloads and release v4.0.3"
+          git push origin HEAD:feat/download-mp3-mp4-v4.0.3
