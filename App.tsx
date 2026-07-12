@@ -368,15 +368,17 @@ export default function App() {
                         )}
                     </div>
                     <div className="flex items-center gap-1.5 sm:gap-2.5">
-                        {/* 歷史紀錄抽屜按鈕 */}
-                        <button
-                            onClick={() => currentUser ? setShowHistoryDrawer(true) : setShowLogin(true)}
-                            className="flex items-center gap-1.5 text-xs text-gray-300 hover:text-white bg-gray-800/60 hover:bg-purple-500/20 px-2.5 py-1.5 sm:px-3 rounded-lg border border-gray-700 hover:border-purple-500/30 transition-all duration-200 font-medium shadow-sm whitespace-nowrap hover:scale-[1.02] active:scale-95"
-                            title={currentUser ? "展開歷史分離紀錄" : "請登入以查看歷史紀錄"}
-                        >
-                            <History size={13} className="text-purple-400 shrink-0" />
-                            <span className="hidden sm:inline">歷史紀錄</span>
-                        </button>
+                        {/* Studio 才顯示音軌分離歷史；KTV 模式不顯示 */}
+                        {APP_MODE === 'main' && (
+                            <button
+                                onClick={() => currentUser ? setShowHistoryDrawer(true) : setShowLogin(true)}
+                                className="flex items-center gap-1.5 text-xs text-gray-300 hover:text-white bg-gray-800/60 hover:bg-purple-500/20 px-2.5 py-1.5 sm:px-3 rounded-lg border border-gray-700 hover:border-purple-500/30 transition-all duration-200 font-medium shadow-sm whitespace-nowrap hover:scale-[1.02] active:scale-95"
+                                title={currentUser ? "展開歷史分離紀錄" : "請登入以查看歷史紀錄"}
+                            >
+                                <History size={13} className="text-purple-400 shrink-0" />
+                                <span className="hidden sm:inline">歷史紀錄</span>
+                            </button>
+                        )}
 
                         {currentUser ? (
                             <button
@@ -396,7 +398,7 @@ export default function App() {
                                 <span className="hidden sm:inline">登入</span>
                             </button>
                         )}
-                        <div className="text-[9px] sm:text-xs font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded border border-gray-750 shrink-0">v4.0.3</div>
+                        <div className="text-[9px] sm:text-xs font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded border border-gray-750 shrink-0">v4.0.4</div>
                     </div>
                 </div>
             </header>

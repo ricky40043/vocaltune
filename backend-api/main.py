@@ -174,11 +174,11 @@ async def queue_processor():
 
 
 async def auto_cleanup():
-    """每小時檢查一次，刪除超過 7 天的資料"""
-    logging.info("Auto Cleanup Task Started")
+    """每天清理一次未被歷史紀錄保留、且超過 1 天的暫存資料。"""
+    logging.info("Daily Auto Cleanup Task Started")
     while True:
         try:
-            cutoff = datetime.now() - timedelta(days=7)
+            cutoff = datetime.now() - timedelta(days=1)
             cleaned = 0
             preserved_job_ids, preserved_source_names = db.get_preserved_history_media()
             
@@ -246,7 +246,7 @@ async def auto_cleanup():
         except Exception as e:
             logging.error(f"Auto Cleanup Error: {e}")
         
-        await asyncio.sleep(3600)  # 每小時執行一次
+        await asyncio.sleep(86400)  # 每 24 小時執行一次
 
 # Job status store is now imported from job_store.py
 
