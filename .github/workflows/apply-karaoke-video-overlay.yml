@@ -1,0 +1,186 @@
+name: Apply karaoke video overlay controls
+
+on:
+  push:
+    branches:
+      - feat/karaoke-video-overlay-controls
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/karaoke-video-overlay-controls
+          fetch-depth: 0
+
+      - name: Move karaoke controls into video player
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path('components/KaraokePlayer.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          text = text.replace(
+              "import { Play, Pause, Loader2, Download, Mic, Youtube, SkipForward, Plus, Minus, Music, ListMusic } from 'lucide-react';",
+              "import { Play, Pause, Loader2, Download, Mic, Youtube, SkipForward, Plus, Minus, ListMusic, Maximize2 } from 'lucide-react';"
+          )
+
+          text = text.replace(
+              "    const [videoDuration, setVideoDuration] = useState(0);",
+              "    const [videoDuration, setVideoDuration] = useState(0);\n    const [videoFit, setVideoFit] = useState<'contain' | 'cover'>('contain');"
+          )
+
+          text = text.replace(
+              "    const videoRef = useRef<HTMLVideoElement>(null);",
+              "    const playerContainerRef = useRef<HTMLDivElement>(null);\n    const videoRef = useRef<HTMLVideoElement>(null);"
+          )
+
+          marker = "    const formatVideoTime = (seconds: number) => {"
+          fullscreen = '''    const toggleFullscreen = async () => {
+        const container = playerContainerRef.current;
+        const video = videoRef.current;
+        if (!container || !video) return;
+
+        try {
+            if (document.fullscreenElement) {
+                await document.exitFullscreen();
+                return;
+            }
+
+            const fullscreenContainer = container as HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void };
+            if (container.requestFullscreen) {
+                await container.requestFullscreen();
+            } else if (fullscreenContainer.webkitRequestFullscreen) {
+                await fullscreenContainer.webkitRequestFullscreen();
+            } else {
+                const iosVideo = video as HTMLVideoElement & { webkitEnterFullscreen?: () => void };
+                iosVideo.webkitEnterFullscreen?.();
+            }
+        } catch (fullscreenError) {
+            console.warn('[Karaoke] Fullscreen failed:', fullscreenError);
+        }
+    };
+
+'''
+          if fullscreen not in text:
+              text = text.replace(marker, fullscreen + marker)
+
+          start = text.index('                        <div className="overflow-hidden rounded-xl border border-gray-700 bg-black shadow-2xl">')
+          end = text.index('                        <div className="flex flex-col sm:flex-row gap-4 justify-center">', start)
+
+          replacement = '''                        <div ref={playerContainerRef} className="relative overflow-hidden rounded-xl border border-gray-700 bg-black shadow-2xl">
+                            <div className="aspect-video relative bg-black">
+                                <video
+                                    key={videoUrl}
+                                    ref={videoRef}
+                                    src={videoUrl}
+                                    className={`h-full w-full ${videoFit === 'cover' ? 'object-cover' : 'object-contain'}`}
+                                    playsInline
+                                    preload="metadata"
+                                    onClick={toggleVideoPlayback}
+                                    onPlay={() => setVideoPlaying(true)}
+                                    onPause={() => setVideoPlaying(false)}
+                                    onTimeUpdate={(event) => setVideoCurrentTime(event.currentTarget.currentTime)}
+                                    onLoadedMetadata={(event) => setVideoDuration(event.currentTarget.duration || 0)}
+                                    onEnded={() => {
+                                        if (historyList.length > 0 && jobId) {
+                                            const currentIndex = historyList.findIndex(h => h.job_id === jobId);
+                                            if (currentIndex >= 0 && currentIndex < historyList.length - 1) {
+                                                loadJob(historyList[currentIndex + 1].job_id);
+                                            }
+                                        }
+                                    }}
+                                />
+                                {vocalsUrl && (
+                                    <audio ref={vocalsRef} src={vocalsUrl} className="hidden" preload="auto" />
+                                )}
+
+                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent px-3 pb-3 pt-12 text-white">
+                                    <div className="mb-3 flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={toggleVideoPlayback}
+                                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-purple-600 text-white active:scale-95"
+                                            aria-label={videoPlaying ? '暫停' : '播放'}
+                                        >
+                                            {videoPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
+                                        </button>
+                                        <span className="w-10 text-right text-xs font-mono text-gray-200">{formatVideoTime(videoCurrentTime)}</span>
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={videoDuration || 0}
+                                            step={0.1}
+                                            value={Math.min(videoCurrentTime, videoDuration || 0)}
+                                            onChange={(event) => {
+                                                const next = Number(event.target.value);
+                                                if (videoRef.current) videoRef.current.currentTime = next;
+                                                setVideoCurrentTime(next);
+                                            }}
+                                            className="h-2 min-w-0 flex-1 cursor-pointer accent-purple-500"
+                                            aria-label="影片進度"
+                                        />
+                                        <span className="w-10 text-xs font-mono text-gray-200">{formatVideoTime(videoDuration)}</span>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm">
+                                        <button
+                                            type="button"
+                                            disabled={!vocalsUrl}
+                                            onClick={() => {
+                                                Tone.start().catch(() => { });
+                                                setPlayVocals(current => !current);
+                                            }}
+                                            className={`flex h-9 items-center gap-2 rounded-lg border px-3 font-bold transition ${playVocals ? 'border-purple-400 bg-purple-600/80 text-white' : 'border-white/20 bg-black/45 text-gray-200'} disabled:opacity-40`}
+                                            aria-label={playVocals ? '開啟人聲' : '去除人聲'}
+                                        >
+                                            <Mic size={15} />
+                                            {playVocals ? '人聲開' : '去人聲'}
+                                        </button>
+
+                                        <div className="flex h-9 items-center rounded-lg border border-white/20 bg-black/45">
+                                            <button type="button" onClick={() => changePitch(-1)} className="h-full px-3 active:bg-white/10" aria-label="降低 Key">
+                                                <Minus size={16} />
+                                            </button>
+                                            <button type="button" onClick={() => resetPitch()} className="min-w-[64px] border-x border-white/15 px-2 text-center font-bold" aria-label="重置 Key">
+                                                Key {pitchSemitones > 0 ? '+' : ''}{pitchSemitones}
+                                            </button>
+                                            <button type="button" onClick={() => changePitch(1)} className="h-full px-3 active:bg-white/10" aria-label="升高 Key">
+                                                <Plus size={16} />
+                                            </button>
+                                        </div>
+
+                                        <div className="flex h-9 items-center overflow-hidden rounded-lg border border-white/20 bg-black/45">
+                                            <button type="button" onClick={() => setVideoFit(current => current === 'contain' ? 'cover' : 'contain')} className="h-full px-3 font-bold active:bg-white/10" aria-label="切換影片縮放">
+                                                {videoFit === 'contain' ? '填滿' : '適應'}
+                                            </button>
+                                            <button type="button" onClick={toggleFullscreen} className="flex h-full items-center border-l border-white/15 px-3 active:bg-white/10" aria-label="全螢幕">
+                                                <Maximize2 size={17} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+'''
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit generated UI change
+        shell: bash
+        run: |
+          rm -f .github/workflows/apply-karaoke-video-overlay.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/KaraokePlayer.tsx .github/workflows/apply-karaoke-video-overlay.yml
+          git commit -m "feat: place karaoke controls inside video player"
+          git push origin HEAD:feat/karaoke-video-overlay-controls
