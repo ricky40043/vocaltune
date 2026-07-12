@@ -1,0 +1,36 @@
+name: Apply source picker flow
+
+on:
+  push:
+    branches: [fix/source-picker-flow-v4.0.2]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/source-picker-flow-v4.0.2
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply changes and build
+        run: |
+          python scripts/fix_source_picker_flow.py
+          npm version 4.0.2 --no-git-tag-version
+          npm ci
+          npm run build
+      - name: Commit generated changes
+        run: |
+          rm -f scripts/fix_source_picker_flow.py .github/workflows/apply-source-picker-flow.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: collapse picker after selection and release v4.0.2"
+          git push origin HEAD:fix/source-picker-flow-v4.0.2
