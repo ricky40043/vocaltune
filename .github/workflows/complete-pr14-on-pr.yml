@@ -7,17 +7,15 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   complete:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
-          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -31,10 +29,15 @@ jobs:
           npm ci
           npm run build
 
-      - name: Commit verified changes
+      - name: Package verified files
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add App.tsx components/SongRequestSystem.tsx package.json package-lock.json
-          git commit -m "fix: complete Studio picker and bump v4.0.1"
-          git push origin HEAD:${{ github.head_ref }}
+          mkdir -p verified/components
+          cp App.tsx verified/App.tsx
+          cp components/SongRequestSystem.tsx verified/components/SongRequestSystem.tsx
+          cp package.json verified/package.json
+          cp package-lock.json verified/package-lock.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-pr14-files
+          path: verified
