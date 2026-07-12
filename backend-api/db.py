@@ -7,6 +7,7 @@ from datetime import datetime
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "db_data" / "vocaltune.db"
 SEPARATED_DIR = BASE_DIR / "separated"
+DOWNLOADS_DIR = BASE_DIR / "downloads"
 
 def expected_track_names(stems: str) -> list:
     return ["vocals", "drums", "bass", "other"] if str(stems) == "4" else ["vocals", "drums", "bass", "guitar", "piano", "other"]
@@ -203,6 +204,17 @@ def get_user_history_list(username: str) -> list:
                     item["status"] = "error"
                     item["error_message"] = "分離音軌檔案不完整，請重新分離"
                     item["tracks"] = {}
+
+            # 原始檔獨立提供給變調器，不能混入 4／6 軌清單。
+            source_path = Path(item["file_path"]) if item.get("file_path") else None
+            item["source_url"] = None
+            if source_path and source_path.is_file():
+                try:
+                    relative_source = source_path.resolve().relative_to(DOWNLOADS_DIR.resolve())
+                    item["source_url"] = f"/files/downloads/{relative_source.as_posix()}"
+                except ValueError:
+                    pass
+            item["source_available"] = bool(item["source_url"])
             
             result.append(item)
         return result
@@ -245,6 +257,22 @@ def clear_user_history(username: str) -> int:
         deleted_count = cursor.rowcount
         conn.commit()
         return deleted_count
+    finally:
+        conn.close()
+
+def get_preserved_history_media() -> tuple[set[str], set[str]]:
+    """回傳仍被個人歷史引用的 job IDs 與原始檔名，供自動清理排除。"""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute("""
+            SELECT DISTINCT s.job_id, s.file_path
+            FROM songs s
+            JOIN user_histories h ON h.song_id = s.id
+            WHERE s.status = 'completed'
+        """).fetchall()
+        job_ids = {row["job_id"] for row in rows if row["job_id"]}
+        source_names = {Path(row["file_path"]).name for row in rows if row["file_path"]}
+        return job_ids, source_names
     finally:
         conn.close()
 

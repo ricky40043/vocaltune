@@ -295,6 +295,9 @@ export const HistoryDrawer: React.FC<HistoryDrawerProps> = ({
                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold capitalize ${item.song_type === 'youtube' ? 'bg-red-950/80 text-red-300' : 'bg-blue-950/80 text-blue-300'}`}>
                                                     {item.song_type === 'youtube' ? 'YouTube' : '上傳'}
                                                 </span>
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${item.source_available ? 'bg-green-950/80 text-green-300' : 'bg-amber-950/80 text-amber-300'}`}>
+                                                    {item.source_available ? '變調器可用' : '原始檔已不存在'}
+                                                </span>
                                                 <span className="text-[10px] text-gray-500 font-mono">
                                                     {formatDate(item.created_at)}
                                                 </span>
