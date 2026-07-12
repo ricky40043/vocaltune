@@ -4,6 +4,7 @@ from typing import Iterator
 
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.routing import APIRoute
 
 from main import SEPARATED_DIR, app
 
@@ -83,11 +84,10 @@ async def serve_separated_audio(job_id: str, filename: str, request: Request):
         return FileResponse(path, media_type=media_type, headers=headers)
 
     start, end = _parse_range(range_header, file_size)
-    content_length = end - start + 1
     headers.update(
         {
             "Content-Range": f"bytes {start}-{end}/{file_size}",
-            "Content-Length": str(content_length),
+            "Content-Length": str(end - start + 1),
         }
     )
 
@@ -99,15 +99,27 @@ async def serve_separated_audio(job_id: str, filename: str, request: Request):
     )
 
 
-# Replace the separated-audio StaticFiles mount with an explicit byte-range route.
+# Remove the old StaticFiles mount.
 app.router.routes = [
     route
     for route in app.router.routes
     if not (getattr(route, "path", None) == "/files/separated")
 ]
-app.add_api_route(
-    "/files/separated/{job_id}/{filename:path}",
-    serve_separated_audio,
+
+# main.py already registered the SPA catch-all. Appending this route would put it
+# after /{full_path:path}, causing every audio request to return JSON 404.
+range_route = APIRoute(
+    path="/files/separated/{job_id}/{filename:path}",
+    endpoint=serve_separated_audio,
     methods=["GET", "HEAD"],
     include_in_schema=False,
 )
+catch_all_index = next(
+    (
+        index
+        for index, route in enumerate(app.router.routes)
+        if getattr(route, "path", None) == "/{full_path:path}"
+    ),
+    len(app.router.routes),
+)
+app.router.routes.insert(catch_all_index, range_route)
