@@ -176,6 +176,7 @@ export default function App() {
     const [url, setUrl] = useState<string>('');
     const [videoId, setVideoId] = useState<string | null>(null);
     const [urlError, setUrlError] = useState<string | null>(null);
+    const [selectedSourceTitle, setSelectedSourceTitle] = useState<string | null>(null);
 
     // 下載與音訊狀態（不再使用 localStorage 進行刷新復原，保持每次刷新都為乾淨初始狀態）
     const [downloadJobId, setDownloadJobId] = useState<string | null>(null);
@@ -392,7 +393,7 @@ export default function App() {
                                 <span className="hidden sm:inline">登入</span>
                             </button>
                         )}
-                        <div className="text-[9px] sm:text-xs font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded border border-gray-750 shrink-0">v4.0</div>
+                        <div className="text-[9px] sm:text-xs font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded border border-gray-750 shrink-0">v4.0.1</div>
                     </div>
                 </div>
             </header>
@@ -439,162 +440,49 @@ export default function App() {
                 <div style={{ display: activeTab === 'source' ? 'block' : 'none' }} className="space-y-6 animate-fade-in max-w-7xl mx-auto">
                     {/* ... Source Tab Content ... */}
                     <div className="md:grid md:grid-cols-2 md:gap-8 space-y-6 md:space-y-0">
-                        {/* YouTube Input */}
-                        <div className={`bg-brand-800/50 rounded-2xl p-5 md:p-6 border shadow-lg relative overflow-hidden transition-colors duration-300 ${urlError ? 'border-red-500/50 bg-red-900/10' : 'border-gray-700/50'}`}>
-                            {/* ... (Keep existing content) ... */}
-                            <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${urlError ? 'from-red-500 via-orange-500 to-red-500' : 'from-blue-500 via-brand-accent to-pink-500'}`}></div>
-                            <h2 className={`text-lg md:text-xl font-bold mb-4 flex items-center gap-2 ${urlError ? 'text-red-400' : 'text-white'}`}>
-                                {urlError ? <AlertTriangle className="animate-bounce" /> : <Youtube className="text-red-500" />}
-                                {urlError ? '連結無效' : 'YouTube 連結'}
-                            </h2>
+                        {/* YouTube search / URL paste, shared with KTV song request */}
+                        <div className="min-w-0">
+                            <SongRequestSystem
+                                isActive={activeTab === 'source'}
+                                currentUser={currentUser}
+                                mode="select"
+                                onSelectSong={(video) => {
+                                    setUrl(video.url);
+                                    setVideoId(video.id);
+                                    setSelectedSourceTitle(video.title);
+                                    setUrlError(null);
+                                    setShowRedownloadBanner(false);
+                                    setDownloadStatus('idle');
+                                }}
+                            />
 
-                            <form onSubmit={handleUrlCheck} className="relative group">
-                                <input
-                                    type="text"
-                                    onClick={async () => {
-                                        // 手機端點擊輸入框通常是為了喚起鍵盤或使用手機原生的貼上泡泡，自動讀取剪貼簿會造成重複確認的干擾，因此手機端在此直接 return
-                                        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-                                        if (isMobile) return;
-
-                                        try {
-                                            const text = await navigator.clipboard.readText();
-                                            if (text && (text.includes('youtube.com') || text.includes('youtu.be'))) {
-                                                if (window.confirm(`偵測到 YouTube 網址，是否貼上？\n${text}`)) {
-                                                    setUrl(text);
-                                                    if (urlError) setUrlError(null);
-                                                    const id = getYouTubeID(text);
-                                                    if (id) setVideoId(id);
-                                                }
-                                            }
-                                        } catch (e) {
-                                            console.error('Clipboard access denied', e);
-                                        }
-                                    }}
-                                    value={url}
-                                    onChange={(e) => {
-                                        setUrl(e.target.value);
-                                        if (urlError) setUrlError(null);
-                                        const id = getYouTubeID(e.target.value);
-                                        if (id) {
-                                            setVideoId(id);
-                                            if (downloadedFileUrl && id !== downloadedSourceVideoId) {
-                                                setShowRedownloadBanner(true);
-                                            }
-                                        } else {
-                                            setShowRedownloadBanner(false);
-                                        }
-                                    }}
-                                    placeholder="貼上 YouTube 網址 (或點擊自動貼上)..."
-                                    className={`w-full bg-gray-900 border-2 rounded-xl py-3 pl-10 pr-12 text-sm text-white placeholder-gray-500 outline-none transition-all shadow-inner ${urlError ? 'border-red-500' : 'border-gray-700 focus:border-brand-accent'}`}
-                                />
-                                <Search className="absolute left-3 top-3.5 text-gray-500" size={18} />
-
-                                {videoId && !urlError ? (
-                                    <CheckCircle2 className="absolute right-3 top-3.5 text-green-400 animate-pulse" size={20} />
-                                ) : (
-                                    <button
-                                        type="button"
-                                        onClick={handleUrlCheck}
-                                        className="absolute right-2 top-2 bottom-2 bg-gray-700 text-gray-300 px-3 rounded-lg text-xs font-bold"
-                                    >
-                                        確認
-                                    </button>
-                                )}
-                            </form>
-
-                            {urlError && (
-                                <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 text-xs font-bold flex items-center gap-2">
-                                    <AlertTriangle size={14} />
-                                    {urlError}
-                                </div>
-                            )}
-
-                            {showRedownloadBanner && (
-                                <div className="mt-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 text-xs flex items-start gap-2">
-                                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                                    <div className="flex-1">
-                                        <div className="font-bold mb-1">偵測到新的影片連結</div>
-                                        <div className="text-yellow-200/70 mb-2">目前音樂仍可使用，或重新下載新影片。</div>
-                                        <div className="flex gap-2">
-                                            <button
-                                                onClick={() => setShowRedownloadBanner(false)}
-                                                className="px-3 py-1 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold transition-colors"
-                                            >繼續使用舊的</button>
-                                            <button
-                                                onClick={() => { setShowRedownloadBanner(false); handleDirectDownload(); }}
-                                                className="px-3 py-1 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black text-xs font-bold transition-colors"
-                                            >重新下載</button>
+                            {videoId && (
+                                <div className="mt-4 rounded-2xl border border-purple-500/30 bg-gray-900/80 p-4 shadow-xl">
+                                    <div className="mb-3 flex items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-bold uppercase tracking-wider text-purple-300">已選擇影片</div>
+                                            <div className="truncate font-bold text-white">{selectedSourceTitle || 'YouTube 影片'}</div>
                                         </div>
+                                        <CheckCircle2 className="shrink-0 text-green-400" size={22} />
                                     </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Download Button */}
-                        <div className={`transition-all duration-500 mt-6 ${videoId ? 'opacity-100' : 'opacity-50 grayscale'}`}>
-                            <button
-                                onClick={handleDirectDownload}
-                                disabled={!videoId || downloadStatus === 'downloading'}
-                                className="w-full group relative flex items-center justify-between bg-gradient-to-r from-brand-accent to-purple-600 hover:from-purple-500 hover:to-pink-500 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed p-5 md:p-6 rounded-2xl transition-all shadow-lg text-left"
-                            >
-                                <div className="flex items-center gap-4">
-                                    <div className="w-14 h-14 md:w-16 md:h-16 rounded-xl bg-white/20 text-white flex items-center justify-center font-bold text-xl shadow-lg">
-                                        {downloadStatus === 'downloading' ? (
-                                            <Loader2 size={28} className="animate-spin" />
-                                        ) : downloadStatus === 'completed' ? (
-                                            <CheckCircle2 size={28} />
-                                        ) : (
-                                            <Zap size={28} />
-                                        )}
-                                    </div>
-                                    <div>
-                                        <div className="font-bold text-white text-xl md:text-2xl">
-                                            {downloadStatus === 'downloading' ? '轉換中...' :
-                                                downloadStatus === 'completed' ? '轉換完成' :
-                                                    '轉換音訊'}
-                                        </div>
-                                        <div className="text-sm md:text-base text-white/80">
-                                            {downloadStatus === 'downloading' ? downloadMessage :
-                                                downloadStatus === 'completed' ? '音訊已就緒' :
-                                                    '轉換 YouTube 為音訊檔'}
-                                        </div>
-                                    </div>
-                                </div>
-                            </button>
-
-                            {/* Progress Bar */}
-                            {downloadStatus === 'downloading' && (
-                                <div className="mt-3">
-                                    <div className="relative h-2 bg-gray-700 rounded-full overflow-hidden">
-                                        <div
-                                            className="absolute h-full bg-gradient-to-r from-brand-accent to-pink-500 transition-all duration-500"
-                                            style={{ width: `${downloadProgress}%` }}
+                                    <div className="aspect-video overflow-hidden rounded-xl bg-black">
+                                        <iframe
+                                            className="h-full w-full"
+                                            src={`https://www.youtube.com/embed/${videoId}`}
+                                            title={selectedSourceTitle || 'YouTube preview'}
+                                            frameBorder="0"
+                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                            allowFullScreen
                                         />
                                     </div>
-                                    <div className="text-right text-xs text-gray-400 mt-1">{downloadProgress}%</div>
-                                </div>
-                            )}
-
-                            {/* 音樂已載入 card (replaces nav buttons) */}
-                            {downloadStatus === 'completed' && downloadedFileUrl && (
-                                <div className="mt-4 flex items-center gap-3 px-4 py-3 bg-green-900/20 border border-green-500/30 rounded-xl">
-                                    <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center shrink-0">
-                                        <Music size={16} className="text-green-400" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="text-green-300 font-bold text-sm">音樂已載入</div>
-                                        <div className="text-green-400/60 text-xs truncate">{downloadedFileUrl.split('/').pop()}</div>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                        <a href={`${API_BASE_URL}/api/download-file/${downloadJobId}`} className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors" title="下載到裝置">
-                                            <Download size={14} />
-                                        </a>
-                                        <button onClick={() => setActiveTab('pitcher')} className="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors">變調器</button>
-                                        <button onClick={() => setActiveTab('splitter')} className="px-2.5 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 text-white text-xs font-bold transition-colors">分離器</button>
-                                        {APP_MODE !== 'main' && (
-                                            <button onClick={() => setActiveTab('karaoke')} className="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-colors">卡拉OK</button>
-                                        )}
-                                    </div>
+                                    <button
+                                        onClick={handleDirectDownload}
+                                        disabled={downloadStatus === 'downloading'}
+                                        className="mt-4 flex w-full items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-brand-accent to-purple-600 px-5 py-4 text-lg font-bold text-white shadow-lg transition hover:from-purple-500 hover:to-pink-500 disabled:cursor-not-allowed disabled:from-gray-700 disabled:to-gray-700"
+                                    >
+                                        {downloadStatus === 'downloading' ? <Loader2 className="animate-spin" size={22} /> : <Zap size={22} />}
+                                        {downloadStatus === 'downloading' ? `${downloadMessage || '轉換中...'} ${downloadProgress}%` : downloadStatus === 'completed' ? '重新轉換這首歌' : '確認並轉換音訊'}
+                                    </button>
                                 </div>
                             )}
                         </div>
