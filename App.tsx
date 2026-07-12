@@ -398,7 +398,7 @@ export default function App() {
                                 <span className="hidden sm:inline">登入</span>
                             </button>
                         )}
-                        <div className="text-[9px] sm:text-xs font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded border border-gray-750 shrink-0">v4.0.4</div>
+                        <div className="text-[9px] sm:text-xs font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded border border-gray-750 shrink-0">v4.0.5</div>
                     </div>
                 </div>
             </header>

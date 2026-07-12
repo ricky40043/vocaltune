@@ -409,7 +409,27 @@ async def get_queue(user: str = None):
 @app.post("/api/queue")
 async def add_to_queue(request: SongRequest, http_request: Request, user: str = None):
     """Add a song to the queue (supports per-user queues via ?user=xxx)"""
-    duration = await asyncio.to_thread(media_policy.probe_youtube_duration, request.youtube_url)
+    def parse_duration_seconds(value: str | None) -> int | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            if ":" not in text:
+                return int(float(text))
+            total = 0
+            for part in text.split(":"):
+                total = total * 60 + int(part)
+            return total
+        except (TypeError, ValueError):
+            return None
+
+    # Search results already include duration. Use that first so a temporary
+    # YouTube metadata probe failure does not block adding a valid song.
+    duration = parse_duration_seconds(request.duration)
+    if duration is None:
+        duration = await asyncio.to_thread(media_policy.probe_youtube_duration, request.youtube_url)
     media_policy.enforce_duration(duration, http_request)
     queue = load_queue(user)
     
