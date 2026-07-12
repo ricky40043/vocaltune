@@ -1,0 +1,52 @@
+name: Apply queue duration fix
+
+on:
+  push:
+    branches:
+      - fix/queue-duration-v4.0.5
+    paths:
+      - scripts/fix_queue_duration.py
+      - .github/workflows/apply-queue-duration-fix.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply code changes
+        run: python scripts/fix_queue_duration.py
+
+      - name: Validate frontend and backend
+        run: |
+          npm ci
+          npm run build
+          python -m py_compile backend-api/main.py
+
+      - name: Remove temporary automation files
+        run: |
+          rm -f scripts/fix_queue_duration.py
+          rm -f .github/workflows/apply-queue-duration-fix.yml
+
+      - name: Commit generated changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Fix KTV duration validation and display v4.0.5"
+            git push
+          fi
