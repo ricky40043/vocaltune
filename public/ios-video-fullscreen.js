@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = 'v4.0.9';
+  const APP_VERSION = 'v4.0.10';
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -33,18 +33,25 @@
     }
   }, true);
 
-  const updateVersionBadge = () => {
+  const updateUi = () => {
     document.querySelectorAll('div, span').forEach((element) => {
       const text = element.textContent?.trim() || '';
       if (/^v\d+\.\d+\.\d+$/.test(text)) {
         element.textContent = APP_VERSION;
       }
     });
+
+    document.querySelectorAll('button').forEach((button) => {
+      const text = button.textContent?.trim();
+      if (text === '完整' || text === '滿版') {
+        button.remove();
+      }
+    });
   };
 
-  new MutationObserver(updateVersionBadge).observe(document.documentElement, {
+  new MutationObserver(updateUi).observe(document.documentElement, {
     childList: true,
     subtree: true,
   });
-  updateVersionBadge();
+  updateUi();
 })();
