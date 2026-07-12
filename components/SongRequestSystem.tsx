@@ -241,7 +241,7 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, 
                                             </div>
                                         </div>
                                         <div className="absolute bottom-1 right-1 bg-black/80 px-1.5 rounded text-xs font-mono text-white">
-                                            {video.duration}
+                                            {formatDuration(video.duration)}
                                         </div>
                                     </>
                                 )}
