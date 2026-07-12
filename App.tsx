@@ -177,6 +177,7 @@ export default function App() {
     const [videoId, setVideoId] = useState<string | null>(null);
     const [urlError, setUrlError] = useState<string | null>(null);
     const [selectedSourceTitle, setSelectedSourceTitle] = useState<string | null>(null);
+    const [showSourcePicker, setShowSourcePicker] = useState(true);
 
     // 下載與音訊狀態（不再使用 localStorage 進行刷新復原，保持每次刷新都為乾淨初始狀態）
     const [downloadJobId, setDownloadJobId] = useState<string | null>(null);
@@ -393,7 +394,7 @@ export default function App() {
                                 <span className="hidden sm:inline">登入</span>
                             </button>
                         )}
-                        <div className="text-[9px] sm:text-xs font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded border border-gray-750 shrink-0">v4.0.1</div>
+                        <div className="text-[9px] sm:text-xs font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded border border-gray-750 shrink-0">v4.0.2</div>
                     </div>
                 </div>
             </header>
@@ -442,28 +443,40 @@ export default function App() {
                     <div className="md:grid md:grid-cols-2 md:gap-8 space-y-6 md:space-y-0">
                         {/* YouTube search / URL paste, shared with KTV song request */}
                         <div className="min-w-0">
-                            <SongRequestSystem
-                                isActive={activeTab === 'source'}
-                                currentUser={currentUser}
-                                mode="select"
-                                onSelectSong={(video) => {
-                                    setUrl(video.url);
-                                    setVideoId(video.id);
-                                    setSelectedSourceTitle(video.title);
-                                    setUrlError(null);
-                                    setShowRedownloadBanner(false);
-                                    setDownloadStatus('idle');
-                                }}
-                            />
+                            {showSourcePicker && (
+                                <SongRequestSystem
+                                    isActive={activeTab === 'source'}
+                                    currentUser={currentUser}
+                                    mode="select"
+                                    onSelectSong={(video) => {
+                                        setUrl(video.url);
+                                        setVideoId(video.id);
+                                        setSelectedSourceTitle(video.title);
+                                        setUrlError(null);
+                                        setShowRedownloadBanner(false);
+                                        setDownloadStatus('idle');
+                                        setShowSourcePicker(false);
+                                        window.setTimeout(() => {
+                                            document.getElementById('selected-source-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                        }, 0);
+                                    }}
+                                />
+                            )}
 
                             {videoId && (
-                                <div className="mt-4 rounded-2xl border border-purple-500/30 bg-gray-900/80 p-4 shadow-xl">
+                                <div id="selected-source-card" className="mt-4 scroll-mt-36 rounded-2xl border border-purple-500/30 bg-gray-900/80 p-4 shadow-xl">
                                     <div className="mb-3 flex items-center justify-between gap-3">
                                         <div className="min-w-0">
-                                            <div className="text-xs font-bold uppercase tracking-wider text-purple-300">已選擇影片</div>
+                                            <div className="text-xs font-bold uppercase tracking-wider text-purple-300">已選擇影片｜下一步：開始轉換</div>
                                             <div className="truncate font-bold text-white">{selectedSourceTitle || 'YouTube 影片'}</div>
                                         </div>
-                                        <CheckCircle2 className="shrink-0 text-green-400" size={22} />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowSourcePicker(true)}
+                                            className="shrink-0 rounded-lg border border-gray-600 px-3 py-1.5 text-xs font-bold text-gray-300 hover:border-purple-400 hover:text-white"
+                                        >
+                                            重新選歌
+                                        </button>
                                     </div>
                                     <div className="aspect-video overflow-hidden rounded-xl bg-black">
                                         <iframe
@@ -481,7 +494,7 @@ export default function App() {
                                         className="mt-4 flex w-full items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-brand-accent to-purple-600 px-5 py-4 text-lg font-bold text-white shadow-lg transition hover:from-purple-500 hover:to-pink-500 disabled:cursor-not-allowed disabled:from-gray-700 disabled:to-gray-700"
                                     >
                                         {downloadStatus === 'downloading' ? <Loader2 className="animate-spin" size={22} /> : <Zap size={22} />}
-                                        {downloadStatus === 'downloading' ? `${downloadMessage || '轉換中...'} ${downloadProgress}%` : downloadStatus === 'completed' ? '重新轉換這首歌' : '確認並轉換音訊'}
+                                        {downloadStatus === 'downloading' ? `${downloadMessage || '轉換中...'} ${downloadProgress}%` : downloadStatus === 'completed' ? '重新轉換這首歌' : '開始轉換音訊'}
                                     </button>
                                 </div>
                             )}
