@@ -180,6 +180,7 @@ async def auto_cleanup():
         try:
             cutoff = datetime.now() - timedelta(days=7)
             cleaned = 0
+            preserved_job_ids, preserved_source_names = db.get_preserved_history_media()
             
             # 1. 清除過期的 queue items
             for qf in BASE_DIR.glob("queue*.json"):
@@ -224,6 +225,10 @@ async def auto_cleanup():
                     continue
                 for file_path in directory.iterdir():
                     try:
+                        if directory == DOWNLOADS_DIR and file_path.name in preserved_source_names:
+                            continue
+                        if directory == SEPARATED_DIR and file_path.is_dir() and file_path.name in preserved_job_ids:
+                            continue
                         mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
                         if mtime < cutoff:
                             if file_path.is_file():

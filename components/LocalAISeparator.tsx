@@ -74,6 +74,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
     const [duration, setDuration] = useState(0);
     const [failedTracks, setFailedTracks] = useState<string[]>([]);
     const [audioLoadVersion, setAudioLoadVersion] = useState(0);
+    const [readyTracks, setReadyTracks] = useState<string[]>([]);
 
     // MIDI conversion state: { trackName: { status: 'idle' | 'loading' | 'completed', url?: string } }
     const [midiStatus, setMidiStatus] = useState<Record<string, { status: string; url?: string }>>({});
@@ -90,15 +91,24 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         Object.values(audioRefs.current).forEach(audio => audio.pause());
     }, []);
 
-    const startStemPlayers = useCallback((offset: number) => {
-        Object.values(audioRefs.current).forEach(audio => {
+    const startStemPlayers = useCallback(async (offset: number) => {
+        const attempts = Object.entries(audioRefs.current).map(async ([name, audio]) => {
             try {
-                audio.currentTime = offset;
-                void audio.play().catch(err => console.warn('[AISeparator] Failed to start stem audio:', err));
+                if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) audio.currentTime = offset;
             } catch (err) {
                 console.warn('[AISeparator] Failed to seek stem audio:', err);
             }
+            try {
+                await audio.play();
+                return true;
+            } catch (err) {
+                console.warn('[AISeparator] Failed to start stem audio:', err);
+                setError(`${name} 無法播放，請按「重新載入音軌」後再試`);
+                return false;
+            }
         });
+        const results = await Promise.all(attempts);
+        return results.some(Boolean);
     }, []);
 
     useEffect(() => {
@@ -155,6 +165,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         });
         setTracks(initialTracks);
         setFailedTracks([]);
+        setReadyTracks([]);
         setStatus('completed');
         setError(null);
 
@@ -377,6 +388,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                     });
                     setTracks(initialTracks);
                     setFailedTracks([]);
+                    setReadyTracks([]);
 
                     clearInterval(pollInterval);
                 } else if (data.status === 'error') {
@@ -446,29 +458,35 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         if (status !== 'completed' || Object.keys(tracks).length === 0) return;
 
         stopStemPlayers();
-        Object.values(audioRefs.current).forEach(audio => { audio.removeAttribute('src'); audio.load(); });
+        Object.values(audioRefs.current).forEach(audio => { audio.removeAttribute('src'); audio.load(); audio.remove(); });
         audioRefs.current = {};
+        setReadyTracks([]);
         playbackOffsetRef.current = 0;
         setCurrentTime(0);
 
         Object.entries(tracks).forEach(([name, track]) => {
             const audio = new Audio();
             audio.preload = 'metadata';
+            audio.style.display = 'none';
+            audio.setAttribute('playsinline', '');
+            audio.setAttribute('data-separation-track', name);
             audio.src = track.url;
             audio.addEventListener('loadedmetadata', () => {
                 if (name === 'vocals') setDuration(audio.duration || 0);
                 setFailedTracks(current => current.filter(trackName => trackName !== name));
+                setReadyTracks(current => current.includes(name) ? current : [...current, name]);
             }, { once: true });
             audio.addEventListener('error', () => {
                 setFailedTracks(current => current.includes(name) ? current : [...current, name]);
                 setError(`${name} 音軌載入失敗，可按「重新載入音軌」再試一次`);
             }, { once: true });
             audioRefs.current[name] = audio;
+            document.body.appendChild(audio);
             audio.load();
         });
 
         return () => {
-            Object.values(audioRefs.current).forEach(audio => { audio.pause(); audio.removeAttribute('src'); audio.load(); });
+            Object.values(audioRefs.current).forEach(audio => { audio.pause(); audio.removeAttribute('src'); audio.load(); audio.remove(); });
             audioRefs.current = {};
         };
     }, [status, trackSourcesKey, audioLoadVersion, stopStemPlayers]);
@@ -497,7 +515,8 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         } else {
             const startOffset = Math.min(currentTime, Math.max(duration - 0.01, 0));
             playbackOffsetRef.current = startOffset;
-            startStemPlayers(startOffset);
+            const started = await startStemPlayers(startOffset);
+            if (!started) return;
             setIsPlaying(true);
 
             // Start UI Update Loop
@@ -538,7 +557,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
         if (isPlaying) {
             stopStemPlayers();
-            startStemPlayers(targetTime);
+            void startStemPlayers(targetTime);
         }
     };
 
@@ -582,7 +601,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
             cancelAnimationFrame(animationRef.current);
             animationRef.current = null;
         }
-        Object.values(audioRefs.current).forEach(audio => { audio.pause(); audio.removeAttribute('src'); audio.load(); });
+        Object.values(audioRefs.current).forEach(audio => { audio.pause(); audio.removeAttribute('src'); audio.load(); audio.remove(); });
         audioRefs.current = {};
 
         setJobId(null);
@@ -594,11 +613,13 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
         setDuration(0);
         setError(null);
         setFailedTracks([]);
+        setReadyTracks([]);
     };
 
     const retryTrackLoading = () => {
         setError(null);
         setFailedTracks([]);
+        setReadyTracks([]);
         setAudioLoadVersion(version => version + 1);
     };
 
@@ -841,6 +862,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                         <div className="flex items-center gap-4 md:gap-6">
                             <button
                                 onClick={togglePlay}
+                                aria-label={isPlaying ? '暫停分離音軌' : '播放分離音軌'}
                                 className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center shadow-lg transition-all active:scale-95"
                             >
                                 {isPlaying ? <Pause size={20} fill="white" /> : <Play size={20} fill="white" className="ml-0.5" />}
@@ -848,7 +870,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
 
                             <div className="flex-1">
                                 <div className="flex justify-between text-xs md:text-sm text-gray-400 mb-1">
-                                    <span>{formatTime(currentTime)}</span>
+                                    <span>{readyTracks.length === 0 ? '點擊開始載入與播放' : formatTime(currentTime)}</span>
                                     <span>{formatTime(duration)}</span>
                                 </div>
                                 <input

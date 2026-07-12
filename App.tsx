@@ -728,6 +728,12 @@ export default function App() {
                 currentUser={currentUser}
                 onLoadJob={(item) => {
                     setLoadedHistoryJob(item);
+                    if (item.source_url) {
+                        setPitcherFileUrl(item.source_url);
+                        setDownloadedFileUrl(item.source_url);
+                    } else {
+                        setPitcherFileUrl(null);
+                    }
                     setActiveTab('splitter');
                 }}
             />
