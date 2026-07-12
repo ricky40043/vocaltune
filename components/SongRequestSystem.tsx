@@ -31,9 +31,11 @@ interface QueueItem {
 interface SongRequestSystemProps {
     isActive: boolean;
     currentUser?: string | null;
+    mode?: 'queue' | 'select';
+    onSelectSong?: (video: SearchResult) => void;
 }
 
-export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, currentUser }) => {
+export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, currentUser, mode = 'queue', onSelectSong }) => {
     // User query param for per-user queue
     const userQuery = currentUser ? `?user=${encodeURIComponent(currentUser)}` : '';
     // Search State
@@ -49,16 +51,29 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, 
     // Debounce Search
     useEffect(() => {
         const timeoutId = setTimeout(() => {
-            if (query.trim().length > 1) {
-                handleSearch(query);
+            const trimmed = query.trim();
+            if (trimmed.length <= 1) return;
+            const pastedId = getYouTubeID(trimmed);
+            if (pastedId) {
+                setResults([{
+                    id: pastedId,
+                    title: '已貼上的 YouTube 影片',
+                    thumbnail: `https://i.ytimg.com/vi/${pastedId}/hqdefault.jpg`,
+                    duration: '',
+                    uploader: 'YouTube',
+                    url: `https://www.youtube.com/watch?v=${pastedId}`,
+                }]);
+                setActivePreviewId(pastedId);
+                return;
             }
+            void handleSearch(trimmed);
         }, 800);
         return () => clearTimeout(timeoutId);
     }, [query]);
 
     // Poll Queue
     useEffect(() => {
-        if (!isActive) return;
+        if (!isActive || mode !== 'queue') return;
 
         const fetchQueue = async () => {
             try {
@@ -75,7 +90,7 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, 
         fetchQueue();
         const interval = setInterval(fetchQueue, 2000);
         return () => clearInterval(interval);
-    }, [isActive, userQuery]);
+    }, [isActive, userQuery, mode]);
 
 
     const handleSearch = async (q: string) => {
@@ -157,7 +172,7 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, 
     };
 
     return (
-        <div className="w-full h-[calc(100vh-140px)] flex flex-col lg:flex-row gap-6 p-4">
+        <div className={`w-full flex flex-col gap-6 ${mode === 'queue' ? 'h-[calc(100vh-140px)] lg:flex-row p-4' : 'min-h-[560px]'}`}>
 
             {/* Left: Search & Results (60%) */}
             <div className="flex-1 lg:flex-[3] flex flex-col min-h-0 bg-gray-900/50 backdrop-blur-xl border border-gray-800 rounded-2xl overflow-hidden shadow-2xl">
@@ -248,11 +263,11 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, 
                                 </div>
                                 <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                     <button
-                                        onClick={() => addToQueue(video)}
+                                        onClick={() => mode === 'select' ? onSelectSong?.(video) : addToQueue(video)}
                                         className="w-full md:w-auto justify-center flex items-center gap-2 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white px-6 py-2.5 rounded-lg font-bold text-sm shadow-lg shadow-purple-900/20 active:scale-95 transition-all"
                                     >
-                                        <Plus size={18} />
-                                        加入點歌
+                                        {mode === 'select' ? <Check size={18} /> : <Plus size={18} />}
+                                        {mode === 'select' ? '選擇這首歌' : '加入點歌'}
                                     </button>
                                     {activePreviewId === video.id && (
                                         <span className="text-xs text-pink-400 font-mono animate-pulse text-center">正在預覽中...</span>
@@ -265,7 +280,7 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, 
             </div>
 
             {/* Right: Queue (Desktop) */}
-            <div className="hidden lg:flex w-96 flex-col bg-gray-900 rounded-2xl border border-gray-800 shadow-2xl overflow-hidden shrink-0">
+            {mode === 'queue' && <div className="hidden lg:flex w-96 flex-col bg-gray-900 rounded-2xl border border-gray-800 shadow-2xl overflow-hidden shrink-0">
                 <div className="p-5 border-b border-gray-800 bg-gray-900 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 text-white">
                         <Music className="text-purple-500" />
@@ -275,13 +290,13 @@ export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, 
                 </div>
 
                 <SongQueueList queue={queue} removeFromQueue={removeFromQueue} />
-            </div>
+            </div>}
 
             {/* Mobile Queue FAB & Modal */}
-            <MobileQueueDrawer
+            {mode === 'queue' && <MobileQueueDrawer
                 queue={queue}
                 removeFromQueue={removeFromQueue}
-            />
+            />}
         </div>
     );
 };
