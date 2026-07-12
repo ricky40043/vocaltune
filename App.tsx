@@ -255,6 +255,8 @@ export default function App() {
                         progress?: number;
                         message?: string;
                         file_url?: string;
+                        mp3_url?: string;
+                        mp4_url?: string;
                         error?: string;
                     }>(statusRes);
 
@@ -394,7 +396,7 @@ export default function App() {
                                 <span className="hidden sm:inline">登入</span>
                             </button>
                         )}
-                        <div className="text-[9px] sm:text-xs font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded border border-gray-750 shrink-0">v4.0.2</div>
+                        <div className="text-[9px] sm:text-xs font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded border border-gray-750 shrink-0">v4.0.3</div>
                     </div>
                 </div>
             </header>
@@ -496,6 +498,25 @@ export default function App() {
                                         {downloadStatus === 'downloading' ? <Loader2 className="animate-spin" size={22} /> : <Zap size={22} />}
                                         {downloadStatus === 'downloading' ? `${downloadMessage || '轉換中...'} ${downloadProgress}%` : downloadStatus === 'completed' ? '重新轉換這首歌' : '開始轉換音訊'}
                                     </button>
+                                    {downloadStatus === 'completed' && downloadJobId && (
+                                        <div className="mt-3 grid grid-cols-2 gap-3">
+                                            <a
+                                                href={`${API_BASE_URL}/api/download-file/${downloadJobId}/mp3`}
+                                                className="flex items-center justify-center rounded-xl border border-purple-400/50 bg-purple-500/15 px-4 py-3 font-bold text-purple-100 hover:bg-purple-500/25"
+                                            >
+                                                下載 MP3
+                                            </a>
+                                            <a
+                                                href={`${API_BASE_URL}/api/download-file/${downloadJobId}/mp4`}
+                                                className="flex items-center justify-center rounded-xl border border-pink-400/50 bg-pink-500/15 px-4 py-3 font-bold text-pink-100 hover:bg-pink-500/25"
+                                            >
+                                                下載 MP4
+                                            </a>
+                                        </div>
+                                    )}
+                                    <p className="mt-3 text-center text-xs text-gray-400">
+                                        下載 MP3／MP4 不限影片長度；音軌分離仍限制 10 分鐘。
+                                    </p>
                                 </div>
                             )}
                         </div>

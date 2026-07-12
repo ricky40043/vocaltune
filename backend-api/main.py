@@ -596,165 +596,120 @@ def validate_youtube_url(url: str) -> bool:
 
 @app.get("/api/download-file/{job_id}")
 async def download_file(job_id: str):
-    """Force browser to download file instead of playing it"""
-    # Find the file with this job_id
-    found_files = list(DOWNLOADS_DIR.glob(f"{job_id}.*"))
-    found_files = [f for f in found_files if f.suffix != '.log']
-    
-    if not found_files:
-        raise HTTPException(status_code=404, detail="檔案不存在")
-    
-    file_path = found_files[0]
-    filename = f"YouTube_Audio_{job_id}{file_path.suffix}"
-    
+    """Backward-compatible audio download endpoint."""
+    return await download_file_by_type(job_id, "mp3")
+
+
+@app.get("/api/download-file/{job_id}/{file_type}")
+async def download_file_by_type(job_id: str, file_type: str):
+    """Force browser download of the generated MP3 or MP4 file."""
+    normalized = file_type.lower()
+    if normalized not in {"mp3", "mp4"}:
+        raise HTTPException(status_code=400, detail="僅支援 MP3 或 MP4")
+
+    file_path = DOWNLOADS_DIR / f"{job_id}.{normalized}"
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail=f"{normalized.upper()} 檔案尚未產生")
+
+    filename = f"VocalTune_{job_id}.{normalized}"
+    media_type = "audio/mpeg" if normalized == "mp3" else "video/mp4"
     return FileResponse(
         path=file_path,
         filename=filename,
-        media_type="application/octet-stream",  # Force download
-        headers={
-            "Content-Disposition": f"attachment; filename={filename}"
-        }
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
 
 # ============== Background Tasks ==============
 
 async def download_youtube_audio(job_id: str, youtube_url: str):
-    """背景任務：下載 YouTube 音訊"""
+    """Download both MP3 and MP4. Source download has no duration limit."""
     try:
         update_job_status(job_id, {
-            "status": "downloading",
-            "progress": 10,
+            "status": "downloading", "progress": 5,
             "message": "正在連接 YouTube..."
         })
-        
-        output_path = DOWNLOADS_DIR / f"{job_id}.mp3"
-        
-        # Check for ffmpeg
+
         ffmpeg_path = shutil.which("ffmpeg")
-        logging.debug(f"ffmpeg path: {ffmpeg_path}")
         if not ffmpeg_path:
-            # Fallback for Mac specific paths if not in PATH
-            if os.path.exists("/opt/homebrew/bin/ffmpeg"):
-                ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
-            elif os.path.exists("/usr/local/bin/ffmpeg"):
-                ffmpeg_path = "/usr/local/bin/ffmpeg"
-        
-        # Use yt-dlp to download
-        cmd = [
-            "yt-dlp",
-            # Select best audio stream
-            "-f", "bestaudio/best",
-            # CRITICAL: Extract audio and convert to m4a (ensures audio-only output)
-            "-x", "--audio-format", "m4a",
-            # Critical: Prevent downloading entire playlist if URL has &list=...
-            "--no-playlist",
-            # Save to specific path with job_id
-            "-o", str(DOWNLOADS_DIR / f"{job_id}.%(ext)s"),
-            # Use android client (currently working without PO Token)
+            for candidate in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"):
+                if os.path.exists(candidate):
+                    ffmpeg_path = candidate
+                    break
+        if not ffmpeg_path:
+            raise Exception("伺服器找不到 ffmpeg")
+
+        common = [
+            "yt-dlp", "--no-playlist", "--no-progress", "--no-warnings",
             "--extractor-args", "youtube:player_client=android",
-            # Prevent hanging on infinite progress updates
-            "--no-progress",
-            # Prevent hanging on infinite progress updates
-            "--no-progress",
-            "--no-warnings",
+            "--ffmpeg-location", ffmpeg_path,
         ]
-        
-        # Add Browser Cookies Support (Auto-detect Chrome)
-        # Check for cookies.txt first (manual override)
-        if (Path("cookies.txt").exists()):
-            cmd.extend(["--cookies", "cookies.txt"])
-            logging.info("Using cookies.txt for auth")
+        if Path("cookies.txt").exists():
+            common.extend(["--cookies", "cookies.txt"])
 
-        cmd.append(youtube_url)
-        
-        # ffmpeg is required for audio extraction
-        if ffmpeg_path:
-             cmd.extend(["--ffmpeg-location", ffmpeg_path])
+        mp3_cmd = common + [
+            "-f", "bestaudio/best", "-x", "--audio-format", "mp3",
+            "--audio-quality", "0", "-o", str(DOWNLOADS_DIR / f"{job_id}.%(ext)s"),
+            youtube_url,
+        ]
+        mp4_cmd = common + [
+            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "--merge-output-format", "mp4",
+            "-o", str(DOWNLOADS_DIR / f"{job_id}.mp4"),
+            youtube_url,
+        ]
 
-        update_job_status(job_id, {
-            "status": "downloading",
-            "progress": 30,
-            "message": "正在下載並轉換為音訊..."
-        })
-        
-        logging.info(f"Running download command: {' '.join(cmd)}")
-        
-        # Define synchronous wrapper for subprocess.run
-        def run_sync_download():
-            log_file_path = DOWNLOADS_DIR / f"{job_id}.log"
-            logging.info(f"Thread: Starting download for {job_id}")
-            with open(log_file_path, "w") as log_file:
-                # Run blocking subprocess call
-                logging.info(f"Thread: Executing subprocess.run for {job_id}")
-                try:
-                    result = subprocess.run(
-                        cmd,
-                        stdout=log_file,
-                        stderr=subprocess.STDOUT,
-                        stdin=subprocess.DEVNULL,
-                        text=True,
-                        timeout=120 # 2 minutes timeout to prevent infinite hang
-                    )
-                    logging.info(f"Thread: subprocess.run finished with code {result.returncode}")
-                    return result.returncode, ""
-                except subprocess.TimeoutExpired:
-                    logging.error("Thread: Download timed out")
-                    return -1, "Download timed out"
-                except Exception as e:
-                    logging.error(f"Thread: Exception {e}")
-                    return -1, str(e)
-            
-            # Read log (moved outside to simplify logic flow above)
-            # Refetch logic if needed, but simple return is safer for now.
-            
-        # Run in thread pool to avoid blocking event loop
-        loop = asyncio.get_event_loop()
-        logging.debug("Offloading download to thread pool...")
-        returncode, full_log = await loop.run_in_executor(None, run_sync_download) # Note: full_log might be simple string now
-        logging.debug(f"Download thread finished with return code: {returncode}")
-        
-        # Re-read log file for details if error
-        log_file_path = DOWNLOADS_DIR / f"{job_id}.log"
-        if os.path.exists(log_file_path):
-             with open(log_file_path, "r") as f:
-                full_log = f.read()
-             if returncode == 0:
-                 os.remove(log_file_path)
-
-        if returncode != 0:
-            logging.error(f"yt-dlp failed. Log output:\n{full_log}")
-            if "Sign in" in full_log:
-                 raise Exception("YouTube 要求驗證 (Bot Detection)。請稍後再試。")
-            raise Exception(f"下載失敗: {full_log[-300:]}") 
-        
-        logging.info("Download finished successfully")
-
-        # Find the actual file (yt-dlp might have created m4a, webm, or mp4)
-        found_files = list(DOWNLOADS_DIR.glob(f"{job_id}.*"))
-        # Filter out .log files just in case
-        found_files = [f for f in found_files if f.suffix != '.log']
-        
-        if found_files:
-            downloaded_file = found_files[0]
-            extension = downloaded_file.suffix.lower()
-            
+        async def run_command(cmd, progress, message, log_suffix):
             update_job_status(job_id, {
-                "status": "completed",
-                "progress": 100,
-                "message": "下載完成！",
-                "file_url": f"/files/downloads/{job_id}{extension}"
+                "status": "downloading", "progress": progress, "message": message
             })
-        else:
-             raise Exception("下載似乎成功但找不到檔案")
-        
-    except Exception as e:
-        print(f"EXCEPTION: {str(e)}")
+            log_path = DOWNLOADS_DIR / f"{job_id}.{log_suffix}.log"
+
+            def run_sync():
+                with open(log_path, "w", encoding="utf-8") as log_file:
+                    try:
+                        result = subprocess.run(
+                            cmd, stdout=log_file, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL, text=True, timeout=7200,
+                        )
+                        return result.returncode
+                    except subprocess.TimeoutExpired:
+                        return -2
+
+            returncode = await asyncio.get_event_loop().run_in_executor(None, run_sync)
+            full_log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
+            if returncode == 0:
+                log_path.unlink(missing_ok=True)
+                return
+            if returncode == -2:
+                raise Exception("下載逾時")
+            if "Sign in" in full_log:
+                raise Exception("YouTube 要求驗證，請稍後再試")
+            raise Exception(f"下載失敗: {full_log[-400:]}")
+
+        await run_command(mp3_cmd, 15, "正在產生 MP3 音訊...", "mp3")
+        await run_command(mp4_cmd, 60, "正在產生 MP4 影片...", "mp4")
+
+        mp3_path = DOWNLOADS_DIR / f"{job_id}.mp3"
+        mp4_path = DOWNLOADS_DIR / f"{job_id}.mp4"
+        if not mp3_path.is_file() or not mp4_path.is_file():
+            raise Exception("轉換完成但找不到 MP3 或 MP4 檔案")
+
         update_job_status(job_id, {
-            "status": "error",
-            "progress": 0,
-            "message": f"下載失敗: {str(e)}",
-            "error": str(e)
+            "status": "completed", "progress": 100,
+            "message": "MP3 與 MP4 已準備完成",
+            "file_url": f"/files/downloads/{job_id}.mp3",
+            "mp3_url": f"/api/download-file/{job_id}/mp3",
+            "mp4_url": f"/api/download-file/{job_id}/mp4",
         })
+    except Exception as exc:
+        logging.exception("Download job failed: %s", job_id)
+        update_job_status(job_id, {
+            "status": "error", "progress": 0,
+            "message": f"下載失敗: {exc}", "error": str(exc),
+        })
+
 
 async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
     """背景任務：使用 Demucs 分離音軌"""
@@ -941,9 +896,6 @@ async def download_youtube(request: DownloadRequest, background_tasks: Backgroun
             status_code=400,
             detail="無效的 YouTube 連結 (支援 Watch, Shorts, Youtu.be)"
         )
-
-    duration = await asyncio.to_thread(media_policy.probe_youtube_duration, request.youtube_url)
-    media_policy.enforce_duration(duration, http_request)
 
     usage_db.log_usage(client_ip(http_request), '轉檔下載', summary=request.youtube_url,
         detail={'youtube_url': request.youtube_url}, status='ok',
