@@ -24,16 +24,28 @@ const send = (method, params = {}) => new Promise((resolve, reject) => {
 });
 const evaluate = expression => send('Runtime.evaluate', { expression, returnByValue: true });
 
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 await send('Page.navigate', { url: 'http://127.0.0.1:3000/?user=test' });
 await new Promise(resolve => setTimeout(resolve, 1000));
 await evaluate(`[...document.querySelectorAll('button')].find(el => el.textContent.includes('歷史紀錄')).click()`);
 await new Promise(resolve => setTimeout(resolve, 500));
 await evaluate(`[...document.querySelectorAll('div')].find(el => (el.textContent.includes('預存的六軌歌曲') || el.textContent.includes('舊版七軌歌曲')) && el.className.includes('cursor-pointer')).click()`);
 await new Promise(resolve => setTimeout(resolve, 1000));
-const result = await evaluate(`JSON.stringify({splitterVisible:[...document.querySelectorAll('button')].some(el => el.textContent.includes('開始分離') && el.offsetParent !== null), completed:document.body.innerText.includes('分離完成！已產生 6 個音軌'), hasOriginalTrack:document.body.innerText.includes('original.wav'), labels:['人聲','鼓組','Bass','吉他','鋼琴','其他'].filter(label => document.body.innerText.includes(label))})`);
+const result = await evaluate(`JSON.stringify({splitterVisible:[...document.querySelectorAll('button')].some(el => el.textContent.includes('開始分離') && el.offsetParent !== null), completed:document.body.innerText.includes('分離完成！已產生 6 個音軌'), hasOriginalTrack:document.body.innerText.includes('original.wav'), modes:[...document.querySelectorAll('[data-waveform-mode]')].map(el => el.dataset.waveformMode), mobileWarning:Boolean(document.querySelector('[data-mobile-load-warning]')?.getClientRects().length), labels:['人聲','鼓組','Bass','吉他','鋼琴','其他'].filter(label => document.body.innerText.includes(label))})`);
 const state = JSON.parse(result.result.value);
-if (!state.completed || state.hasOriginalTrack || state.labels.length !== 6) throw new Error(`History load verification failed: ${JSON.stringify(state)}`);
+if (!state.completed || state.hasOriginalTrack || state.labels.length !== 6 || state.modes.length !== 6 || state.mobileWarning || state.modes.some(mode => mode !== 'desktop-audio')) throw new Error(`Desktop history verification failed: ${JSON.stringify(state)}`);
+
+await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+await send('Page.navigate', { url: 'http://127.0.0.1:3000/?user=test' });
+await new Promise(resolve => setTimeout(resolve, 800));
+await evaluate(`[...document.querySelectorAll('button')].find(el => el.textContent.includes('歷史紀錄')).click()`);
+await new Promise(resolve => setTimeout(resolve, 400));
+await evaluate(`[...document.querySelectorAll('div')].find(el => el.textContent.includes('預存的六軌歌曲') && el.className.includes('cursor-pointer')).click()`);
+await new Promise(resolve => setTimeout(resolve, 800));
+const mobileResult = await evaluate(`JSON.stringify({modes:[...document.querySelectorAll('[data-waveform-mode]')].map(el => el.dataset.waveformMode), warning:Boolean(document.querySelector('[data-mobile-load-warning]')?.getClientRects().length)})`);
+const mobileState = JSON.parse(mobileResult.result.value);
+if (!mobileState.warning || mobileState.modes.length !== 6 || mobileState.modes.some(mode => mode !== 'mobile-lightweight')) throw new Error(`Mobile history verification failed: ${JSON.stringify(mobileState)}`);
 const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
 await fs.writeFile('/tmp/vocaltune-history-six-tracks.png', Buffer.from(screenshot.data, 'base64'));
-console.log(JSON.stringify(state));
+console.log(JSON.stringify({desktop: state, mobile: mobileState}));
 socket.close();

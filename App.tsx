@@ -51,36 +51,12 @@ export default function App() {
     const [adminPassword, setAdminPassword] = useState('');
     const [adminError, setAdminError] = useState<string | null>(null);
     const [adminMode, setAdminMode] = useState(isAdminMode());
-    const adminLongPressTimer = React.useRef<number | null>(null);
-    const adminTouchStartedAt = React.useRef(0);
 
     const openAdminLogin = React.useCallback(() => {
         setAdminPassword('');
         setAdminError(null);
         setShowAdminLogin(true);
     }, []);
-
-    const startAdminLongPress = () => {
-        if (adminLongPressTimer.current) window.clearTimeout(adminLongPressTimer.current);
-        adminLongPressTimer.current = window.setTimeout(openAdminLogin, 3000);
-    };
-
-    const cancelAdminLongPress = () => {
-        if (adminLongPressTimer.current) window.clearTimeout(adminLongPressTimer.current);
-        adminLongPressTimer.current = null;
-    };
-
-    const startAdminTouch = () => {
-        adminTouchStartedAt.current = Date.now();
-        startAdminLongPress();
-    };
-
-    const finishAdminTouch = () => {
-        const heldLongEnough = Date.now() - adminTouchStartedAt.current >= 2800;
-        cancelAdminLongPress();
-        if (heldLongEnough) openAdminLogin();
-        adminTouchStartedAt.current = 0;
-    };
 
     React.useEffect(() => {
         const handleAdminShortcut = (event: KeyboardEvent) => {
@@ -90,10 +66,7 @@ export default function App() {
             }
         };
         window.addEventListener('keydown', handleAdminShortcut);
-        return () => {
-            window.removeEventListener('keydown', handleAdminShortcut);
-            if (adminLongPressTimer.current) window.clearTimeout(adminLongPressTimer.current);
-        };
+        return () => window.removeEventListener('keydown', handleAdminShortcut);
     }, [openAdminLogin]);
 
     const loginAdminMode = async (event: React.FormEvent) => {
@@ -369,22 +342,19 @@ export default function App() {
             <header className="sticky top-0 z-50 bg-brand-900/95 backdrop-blur-lg border-b border-gray-800 shadow-md">
                 <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <div
-                            className="w-8 h-8 md:w-10 md:h-10 bg-brand-accent rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(139,92,246,0.3)] select-none touch-none"
-                            onPointerDown={startAdminLongPress}
-                            onPointerUp={cancelAdminLongPress}
-                            onPointerCancel={cancelAdminLongPress}
-                            onPointerLeave={cancelAdminLongPress}
-                            onTouchStart={startAdminTouch}
-                            onTouchEnd={finishAdminTouch}
-                            onTouchCancel={cancelAdminLongPress}
+                        <button
+                            type="button"
+                            className="w-8 h-8 md:w-10 md:h-10 bg-brand-accent rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(139,92,246,0.3)] select-none touch-none active:scale-95 transition-transform"
+                            onClick={() => {
+                                if (window.matchMedia('(max-width: 768px), (pointer: coarse)').matches) openAdminLogin();
+                            }}
                             onContextMenu={(event) => event.preventDefault()}
                             aria-label="VocalTune"
-                            title="VocalTune"
+                            title="手機點擊進入 ADMIN 登入"
                         >
                             <Music size={18} className="text-white md:hidden" />
                             <Music size={22} className="text-white hidden md:block" />
-                        </div>
+                        </button>
                         <h1 className="font-bold text-xl md:text-2xl tracking-tight">Vocal<span className="text-brand-glow">Tune</span> <span className="text-xs align-top text-gray-500 ml-1">{APP_MODE === 'karaoke' ? 'KTV' : APP_MODE === 'main' ? 'Studio' : 'Pro'}</span></h1>
                         {currentUser && (
                             <span className="ml-2 text-[10px] sm:text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full flex items-center gap-1 max-w-[90px] sm:max-w-none truncate shrink-0 border border-purple-500/10">
@@ -689,7 +659,7 @@ export default function App() {
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="管理模式登入">
                         <form onSubmit={loginAdminMode} className="w-full max-w-sm rounded-2xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
                             <h2 className="mb-2 text-xl font-bold text-white">進入 ADMIN 模式</h2>
-                            <p className="mb-4 text-sm text-gray-400">驗證後，本分頁可處理超過 10 分鐘的媒體。手機可長按左上角 Logo 3 秒開啟此視窗。</p>
+                            <p className="mb-4 text-sm text-gray-400">驗證後，本分頁可處理超過 10 分鐘的媒體。手機可點擊左上角 Logo 開啟此視窗。</p>
                             <input autoFocus type="password" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} placeholder="管理密碼" className="w-full rounded-xl border border-gray-700 bg-gray-950 px-4 py-3 text-white outline-none focus:border-amber-400" />
                             {adminError && <p className="mt-2 text-sm text-red-400">{adminError}</p>}
                             <div className="mt-5 flex justify-end gap-2">

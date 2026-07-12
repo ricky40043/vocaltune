@@ -813,7 +813,7 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                         <span className="text-sm font-bold">分離完成！已產生 {Object.keys(tracks).length} 個音軌</span>
                     </div>
 
-                    <div className="flex items-start justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200">
+                    <div data-mobile-load-warning className="flex items-start justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200 md:hidden">
                         <div className="flex min-w-0 items-start gap-2">
                             <AlertCircle size={16} className="mt-0.5 shrink-0" />
                             <div className="text-xs leading-relaxed">
@@ -826,6 +826,15 @@ export const LocalAISeparator: React.FC<LocalAISeparatorProps> = ({
                             <RefreshCw size={14} /> 重新載入音軌
                         </button>
                     </div>
+
+                    {failedTracks.length > 0 && (
+                        <div className="hidden items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-red-200 md:flex">
+                            <span className="text-sm font-bold">音軌載入失敗：{failedTracks.join('、')}</span>
+                            <button type="button" onClick={retryTrackLoading} className="flex items-center gap-1 rounded-lg bg-red-500/20 px-3 py-2 text-xs font-bold hover:bg-red-500/30">
+                                <RefreshCw size={14} /> 重新載入音軌
+                            </button>
+                        </div>
+                    )}
 
                     {/* Playback Controls */}
                     <div className="bg-gray-800/60 rounded-xl p-4 md:p-5 border border-gray-700/50">
