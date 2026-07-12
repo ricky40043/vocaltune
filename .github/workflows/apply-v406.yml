@@ -1,0 +1,32 @@
+name: Apply KTV integrated player v4.0.6
+on:
+  push:
+    branches: [feat/ktv-integrated-player-v4.0.6]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[v406-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply changes
+        run: python scripts/apply_v406.py
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Check backend syntax
+        run: python -m py_compile backend-api/main.py backend-api/karaoke.py
+      - name: Commit generated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add App.tsx package.json package-lock.json components/KaraokePlayer.tsx components/SongRequestSystem.tsx backend-api/main.py
+          git commit -m "Integrate KTV controls and staged progress v4.0.6 [v406-applied]"
+          git push
