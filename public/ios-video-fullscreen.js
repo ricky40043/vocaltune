@@ -1,4 +1,5 @@
 (() => {
+  const APP_VERSION = 'v4.0.9';
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -34,8 +35,9 @@
 
   const updateVersionBadge = () => {
     document.querySelectorAll('div, span').forEach((element) => {
-      if (element.textContent?.trim() === 'v4.0.7') {
-        element.textContent = 'v4.0.8';
+      const text = element.textContent?.trim() || '';
+      if (/^v\d+\.\d+\.\d+$/.test(text)) {
+        element.textContent = APP_VERSION;
       }
     });
   };
