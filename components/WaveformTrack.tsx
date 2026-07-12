@@ -56,10 +56,6 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
     const animationRef = useRef<number | null>(null);
 
     const stableAudioUrl = useMemo(() => audioUrl, [audioUrl]);
-    const useLightweightWaveform = useMemo(() => {
-        if (typeof window === 'undefined') return false;
-        return window.matchMedia('(max-width: 768px)').matches || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    }, []);
 
     const [waveformData, setWaveformData] = useState<Float32Array | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -122,52 +118,49 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
         }
     };
 
-    // 手機採輕量波形避免 OOM；桌面保留由真實音訊計算的原始波形。
+    // Load waveform (Visual)
     useEffect(() => {
-        let cancelled = false;
-        setIsLoading(true);
+        let isCancelled = false;
 
-        if (useLightweightWaveform) {
-            const samples = 300;
-            const seed = [...name].reduce((sum, char) => sum + char.charCodeAt(0), 0);
-            const visual = new Float32Array(samples);
-            for (let i = 0; i < samples; i++) {
-                visual[i] = 0.18 + Math.abs(Math.sin((i + seed) * 0.17) * Math.cos((i + seed) * 0.043)) * 0.72;
-            }
-            setWaveformData(visual);
-            setIsLoading(false);
-            return;
-        }
-
-        const loadDesktopWaveform = async () => {
+        const loadWaveform = async () => {
             try {
+                setIsLoading(true);
+                if (!stableAudioUrl) throw new Error('No URL');
+
                 const response = await fetch(stableAudioUrl);
                 if (!response.ok) throw new Error('Fetch failed');
+
                 const arrayBuffer = await response.arrayBuffer();
                 const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
-                if (cancelled) { await audioContext.close(); return; }
 
-                const rawData = decodedBuffer.getChannelData(0);
-                const samples = 300;
-                const step = Math.max(1, Math.floor(rawData.length / samples));
-                const reducedData = new Float32Array(samples);
-                for (let i = 0; i < samples; i++) {
-                    let sum = 0;
-                    for (let j = 0; j < step; j++) sum += Math.abs(rawData[i * step + j] || 0);
-                    reducedData[i] = Math.min(1, (sum / step) * 4);
+                // Decode strictly for visualization
+                const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+                if (!isCancelled) {
+                    const rawData = decodedBuffer.getChannelData(0);
+                    const samples = 300;
+                    const step = Math.floor(rawData.length / samples);
+                    const reducedData = new Float32Array(samples);
+
+                    for (let i = 0; i < samples; i++) {
+                        let sum = 0;
+                        for (let j = 0; j < step; j++) {
+                            sum += Math.abs(rawData[i * step + j] || 0);
+                        }
+                        reducedData[i] = Math.min(1, (sum / step) * 4);
+                    }
+                    setWaveformData(reducedData);
+                    setIsLoading(false);
                 }
-                setWaveformData(reducedData);
-                setIsLoading(false);
-                await audioContext.close();
-            } catch {
-                if (!cancelled) setIsLoading(false);
+                audioContext.close();
+            } catch (err) {
+                if (!isCancelled) setIsLoading(false);
             }
         };
 
-        void loadDesktopWaveform();
-        return () => { cancelled = true; };
-    }, [name, stableAudioUrl, useLightweightWaveform]);
+        loadWaveform();
+        return () => { isCancelled = true; };
+    }, [stableAudioUrl]);
 
     // Draw Waveform
     useEffect(() => {
@@ -258,7 +251,6 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
     return (
         <div
             className="flex w-full rounded-lg overflow-hidden mb-1 relative"
-            data-waveform-mode={useLightweightWaveform ? 'mobile-lightweight' : 'desktop-audio'}
             style={{ backgroundColor: muted ? '#1f2937' : 'rgba(0,0,0,0.2)' }}
         >
             {/* Background Color Indicator (Left Strip) */}
