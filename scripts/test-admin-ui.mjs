@@ -29,9 +29,7 @@ const send = (method, params = {}) => new Promise((resolve, reject) => {
 await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
 await send('Page.navigate', { url: 'http://127.0.0.1:3000/?user=admin-test' });
 await new Promise(resolve => setTimeout(resolve, 800));
-await send('Runtime.evaluate', { expression: `sessionStorage.removeItem('vocaltune_admin_mode_token'); document.querySelector('[aria-label="VocalTune"]').dispatchEvent(new Event('touchstart', {bubbles:true}))` });
-await new Promise(resolve => setTimeout(resolve, 3200));
-await send('Runtime.evaluate', { expression: `document.querySelector('[aria-label="VocalTune"]').dispatchEvent(new Event('touchend', {bubbles:true}))` });
+await send('Runtime.evaluate', { expression: `sessionStorage.removeItem('vocaltune_admin_mode_token'); document.querySelector('[aria-label="VocalTune"]').click()` });
 await new Promise(resolve => setTimeout(resolve, 300));
 const result = await send('Runtime.evaluate', {
   expression: `(() => { const dialog = document.querySelector('[role="dialog"]'); const input = dialog?.querySelector('input[type="password"]'); return JSON.stringify({dialog: dialog?.getAttribute('aria-label'), passwordInput: Boolean(input), text: dialog?.textContent}); })()`,
@@ -51,5 +49,5 @@ const loggedInResult = await send('Runtime.evaluate', {
 });
 const loggedIn = JSON.parse(loggedInResult.result.value);
 if (!loggedIn.token || !loggedIn.text || loggedIn.dialog) throw new Error(`Admin login verification failed: ${JSON.stringify(loggedIn)}`);
-console.log(JSON.stringify({mobileLongPressDialog: state, loggedIn}));
+console.log(JSON.stringify({mobileLogoTapDialog: state, loggedIn}));
 socket.close();
