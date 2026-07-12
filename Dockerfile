@@ -1,4 +1,3 @@
-
 FROM python:3.10-slim
 
 # Install system dependencies
@@ -33,7 +32,6 @@ ENV HOST=0.0.0.0
 # Expose port (Cloud Run sets PORT usually to 8080)
 EXPOSE 8080
 
-# Start Application
-# Start Application
+# Start Application through the bootstrap that replaces StaticFiles with byte-range audio responses.
 WORKDIR /app/backend-api
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "start:app", "--host", "0.0.0.0", "--port", "8080"]
