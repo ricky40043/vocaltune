@@ -1,0 +1,206 @@
+name: Apply persistent storage and studio song picker
+
+on:
+  push:
+    branches:
+      - feat/persistent-data-and-studio-song-picker
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/persistent-data-and-studio-song-picker
+          fetch-depth: 0
+
+      - name: Apply changes
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          # 1. Persist all runtime media outside the repository checkout.
+          compose = Path('docker-compose.yml')
+          text = compose.read_text(encoding='utf-8')
+          text = text.replace(
+              '''      - ./backend-api/downloads:/app/backend-api/downloads
+      - ./backend-api/separated:/app/backend-api/separated
+      - ./backend-api/karaoke_output:/app/backend-api/karaoke_output
+      - ./backend-api/db_data:/app/backend-api/db_data''',
+              '''      - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/downloads:/app/backend-api/downloads
+      - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/separated:/app/backend-api/separated
+      - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/karaoke_output:/app/backend-api/karaoke_output
+      - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/db_data:/app/backend-api/db_data'''
+          )
+          compose.write_text(text, encoding='utf-8')
+
+          # 2. Reuse SongRequestSystem as a selectable YouTube search/paste module.
+          song = Path('components/SongRequestSystem.tsx')
+          text = song.read_text(encoding='utf-8')
+          text = text.replace(
+              '''interface SongRequestSystemProps {
+    isActive: boolean;
+    currentUser?: string | null;
+}''',
+              '''interface SongRequestSystemProps {
+    isActive: boolean;
+    currentUser?: string | null;
+    mode?: 'queue' | 'select';
+    onSelectSong?: (video: SearchResult) => void;
+}'''
+          )
+          text = text.replace(
+              '''export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, currentUser }) => {''',
+              '''export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, currentUser, mode = 'queue', onSelectSong }) => {'''
+          )
+          text = text.replace(
+              '''        const timeoutId = setTimeout(() => {
+            if (query.trim().length > 1) {
+                handleSearch(query);
+            }
+        }, 800);''',
+              '''        const timeoutId = setTimeout(() => {
+            const trimmed = query.trim();
+            if (trimmed.length <= 1) return;
+            const pastedId = getYouTubeID(trimmed);
+            if (pastedId) {
+                setResults([{
+                    id: pastedId,
+                    title: '已貼上的 YouTube 影片',
+                    thumbnail: `https://i.ytimg.com/vi/${pastedId}/hqdefault.jpg`,
+                    duration: '',
+                    uploader: 'YouTube',
+                    url: `https://www.youtube.com/watch?v=${pastedId}`,
+                }]);
+                setActivePreviewId(pastedId);
+                return;
+            }
+            handleSearch(trimmed);
+        }, 800);'''
+          )
+          text = text.replace(
+              '''        if (!isActive) return;''',
+              '''        if (!isActive || mode !== 'queue') return;''',
+              1
+          )
+          text = text.replace(
+              '''    }, [isActive, userQuery]);''',
+              '''    }, [isActive, userQuery, mode]);'''
+          )
+          text = text.replace(
+              '''        <div className="w-full h-[calc(100vh-140px)] flex flex-col lg:flex-row gap-6 p-4">''',
+              '''        <div className={`w-full flex flex-col gap-6 ${mode === 'queue' ? 'h-[calc(100vh-140px)] lg:flex-row p-4' : 'min-h-[560px]'}`}>'''
+          )
+          text = text.replace(
+              '''                                        onClick={() => addToQueue(video)}''',
+              '''                                        onClick={() => mode === 'select' ? onSelectSong?.(video) : addToQueue(video)}'''
+          )
+          text = text.replace(
+              '''                                        <Plus size={18} />
+                                        加入點歌''',
+              '''                                        {mode === 'select' ? <Check size={18} /> : <Plus size={18} />}
+                                        {mode === 'select' ? '選擇這首歌' : '加入點歌'}'''
+          )
+          text = text.replace(
+              '''            {/* Right: Queue (Desktop) */}
+            <div className="hidden lg:flex w-96 flex-col bg-gray-900 rounded-2xl border border-gray-800 shadow-2xl overflow-hidden shrink-0">''',
+              '''            {/* Right: Queue (Desktop) */}
+            {mode === 'queue' && <div className="hidden lg:flex w-96 flex-col bg-gray-900 rounded-2xl border border-gray-800 shadow-2xl overflow-hidden shrink-0">'''
+          )
+          text = text.replace(
+              '''                <SongQueueList queue={queue} removeFromQueue={removeFromQueue} />
+            </div>
+
+            {/* Mobile Queue FAB & Modal */}
+            <MobileQueueDrawer
+                queue={queue}
+                removeFromQueue={removeFromQueue}
+            />''',
+              '''                <SongQueueList queue={queue} removeFromQueue={removeFromQueue} />
+            </div>}
+
+            {/* Mobile Queue FAB & Modal */}
+            {mode === 'queue' && <MobileQueueDrawer
+                queue={queue}
+                removeFromQueue={removeFromQueue}
+            />}'''
+          )
+          song.write_text(text, encoding='utf-8')
+
+          # 3. Replace Studio's URL-only block with the shared picker module.
+          app = Path('App.tsx')
+          text = app.read_text(encoding='utf-8')
+          marker = "    const [urlError, setUrlError] = useState<string | null>(null);"
+          text = text.replace(marker, marker + "\n    const [selectedSourceTitle, setSelectedSourceTitle] = useState<string | null>(null);")
+
+          start = text.index('                        {/* YouTube Input */}')
+          end = text.index('                        {/* File Upload Section - Desktop: Right Column */}', start)
+          replacement = '''                        {/* YouTube search / URL paste, shared with KTV song request */}
+                        <div className="min-w-0">
+                            <SongRequestSystem
+                                isActive={activeTab === 'source'}
+                                currentUser={currentUser}
+                                mode="select"
+                                onSelectSong={(video) => {
+                                    setUrl(video.url);
+                                    setVideoId(video.id);
+                                    setSelectedSourceTitle(video.title);
+                                    setUrlError(null);
+                                    setShowRedownloadBanner(false);
+                                    setDownloadStatus('idle');
+                                }}
+                            />
+
+                            {videoId && (
+                                <div className="mt-4 rounded-2xl border border-purple-500/30 bg-gray-900/80 p-4 shadow-xl">
+                                    <div className="mb-3 flex items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-bold uppercase tracking-wider text-purple-300">已選擇影片</div>
+                                            <div className="truncate font-bold text-white">{selectedSourceTitle || 'YouTube 影片'}</div>
+                                        </div>
+                                        <CheckCircle2 className="shrink-0 text-green-400" size={22} />
+                                    </div>
+                                    <div className="aspect-video overflow-hidden rounded-xl bg-black">
+                                        <iframe
+                                            className="h-full w-full"
+                                            src={`https://www.youtube.com/embed/${videoId}`}
+                                            title={selectedSourceTitle || 'YouTube preview'}
+                                            frameBorder="0"
+                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                            allowFullScreen
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={handleDirectDownload}
+                                        disabled={downloadStatus === 'downloading'}
+                                        className="mt-4 flex w-full items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-brand-accent to-purple-600 px-5 py-4 text-lg font-bold text-white shadow-lg transition hover:from-purple-500 hover:to-pink-500 disabled:cursor-not-allowed disabled:from-gray-700 disabled:to-gray-700"
+                                    >
+                                        {downloadStatus === 'downloading' ? <Loader2 className="animate-spin" size={22} /> : <Zap size={22} />}
+                                        {downloadStatus === 'downloading' ? `${downloadMessage || '轉換中...'} ${downloadProgress}%` : downloadStatus === 'completed' ? '重新轉換這首歌' : '確認並轉換音訊'}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+'''
+          text = text[:start] + replacement + text[end:]
+          app.write_text(text, encoding='utf-8')
+
+          # Deployment note for first-time host setup.
+          Path('PERSISTENT_STORAGE.md').write_text('''# VocalTune persistent storage\n\nRuntime files are stored outside the Git checkout. The default host path is `/srv/vocaltune`.\n\n```bash\nsudo mkdir -p /srv/vocaltune/{downloads,separated,karaoke_output,db_data}\nsudo chown -R $(id -u):$(id -g) /srv/vocaltune\ndocker compose up -d --build\n```\n\nSet `VOCALTUNE_DATA_DIR` before `docker compose up` to use another host directory. Do not delete that directory during deployment.\n''', encoding='utf-8')
+          PY
+
+      - name: Commit generated changes
+        shell: bash
+        run: |
+          rm -f .github/workflows/apply-persistent-picker.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add App.tsx components/SongRequestSystem.tsx docker-compose.yml PERSISTENT_STORAGE.md .github/workflows/apply-persistent-picker.yml
+          git commit -m "feat: persist runtime data and reuse song picker in Studio"
+          git push origin HEAD:feat/persistent-data-and-studio-song-picker

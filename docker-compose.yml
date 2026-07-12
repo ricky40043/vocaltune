@@ -11,11 +11,11 @@ services:
     ports:
       - "18300:8080"
     volumes:
-      # Persistent storage for downloads and separated tracks
-      - ./backend-api/downloads:/app/backend-api/downloads
-      - ./backend-api/separated:/app/backend-api/separated
-      - ./backend-api/karaoke_output:/app/backend-api/karaoke_output
-      - ./backend-api/db_data:/app/backend-api/db_data
+      # Persistent runtime storage outside the Git checkout.
+      - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/downloads:/app/backend-api/downloads
+      - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/separated:/app/backend-api/separated
+      - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/karaoke_output:/app/backend-api/karaoke_output
+      - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/db_data:/app/backend-api/db_data
     restart: unless-stopped
     # Optional CPU limit to keep your PC smooth
     # deploy:
