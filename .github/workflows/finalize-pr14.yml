@@ -1,0 +1,98 @@
+name: Finalize PR14
+on:
+  push:
+    branches: [feat/persistent-data-and-studio-song-picker]
+permissions:
+  contents: write
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/persistent-data-and-studio-song-picker
+          fetch-depth: 0
+      - name: Apply final changes
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import json
+
+          song = Path('components/SongRequestSystem.tsx')
+          s = song.read_text(encoding='utf-8')
+          s = s.replace("interface SongRequestSystemProps {\n    isActive: boolean;\n    currentUser?: string | null;\n}", "interface SongRequestSystemProps {\n    isActive: boolean;\n    currentUser?: string | null;\n    mode?: 'queue' | 'select';\n    onSelectSong?: (video: SearchResult) => void;\n}", 1)
+          s = s.replace("export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, currentUser }) => {", "export const SongRequestSystem: React.FC<SongRequestSystemProps> = ({ isActive, currentUser, mode = 'queue', onSelectSong }) => {", 1)
+          s = s.replace("        const timeoutId = setTimeout(() => {\n            if (query.trim().length > 1) {\n                handleSearch(query);\n            }\n        }, 800);", "        const timeoutId = setTimeout(() => {\n            const trimmed = query.trim();\n            if (trimmed.length <= 1) return;\n            const pastedId = getYouTubeID(trimmed);\n            if (pastedId) {\n                setResults([{ id: pastedId, title: '已貼上的 YouTube 影片', thumbnail: `https://i.ytimg.com/vi/${pastedId}/hqdefault.jpg`, duration: '', uploader: 'YouTube', url: `https://www.youtube.com/watch?v=${pastedId}` }]);\n                setActivePreviewId(pastedId);\n                return;\n            }\n            void handleSearch(trimmed);\n        }, 800);", 1)
+          s = s.replace("        if (!isActive) return;", "        if (!isActive || mode !== 'queue') return;", 1)
+          s = s.replace("    }, [isActive, userQuery]);", "    }, [isActive, userQuery, mode]);", 1)
+          s = s.replace('<div className="w-full h-[calc(100vh-140px)] flex flex-col lg:flex-row gap-6 p-4">', '<div className={`w-full flex flex-col gap-6 ${mode === \'queue\' ? \'h-[calc(100vh-140px)] lg:flex-row p-4\' : \'min-h-[560px]\'}`}>', 1)
+          s = s.replace("onClick={() => addToQueue(video)}", "onClick={() => mode === 'select' ? onSelectSong?.(video) : addToQueue(video)}", 1)
+          s = s.replace("<Plus size={18} />\n                                        加入點歌", "{mode === 'select' ? <Check size={18} /> : <Plus size={18} />}\n                                        {mode === 'select' ? '選擇這首歌' : '加入點歌'}", 1)
+          s = s.replace('            <div className="hidden lg:flex w-96 flex-col bg-gray-900 rounded-2xl border border-gray-800 shadow-2xl overflow-hidden shrink-0">', '            {mode === \'queue\' && <div className="hidden lg:flex w-96 flex-col bg-gray-900 rounded-2xl border border-gray-800 shadow-2xl overflow-hidden shrink-0">', 1)
+          s = s.replace("                <SongQueueList queue={queue} removeFromQueue={removeFromQueue} />\n            </div>\n\n            {/* Mobile Queue FAB & Modal */}\n            <MobileQueueDrawer\n                queue={queue}\n                removeFromQueue={removeFromQueue}\n            />", "                <SongQueueList queue={queue} removeFromQueue={removeFromQueue} />\n            </div>}\n\n            {/* Mobile Queue FAB & Modal */}\n            {mode === 'queue' && <MobileQueueDrawer\n                queue={queue}\n                removeFromQueue={removeFromQueue}\n            />}", 1)
+          song.write_text(s, encoding='utf-8')
+
+          app = Path('App.tsx')
+          a = app.read_text(encoding='utf-8')
+          state = "    const [urlError, setUrlError] = useState<string | null>(null);"
+          if "selectedSourceTitle" not in a:
+              a = a.replace(state, state + "\n    const [selectedSourceTitle, setSelectedSourceTitle] = useState<string | null>(null);", 1)
+          start = a.index('                        {/* YouTube Input */}')
+          end = a.index('                        {/* File Upload Section - Desktop: Right Column */}', start)
+          block = '''                        {/* YouTube search / URL paste, shared with KTV song request */}
+                        <div className="min-w-0">
+                            <SongRequestSystem
+                                isActive={activeTab === 'source'}
+                                currentUser={currentUser}
+                                mode="select"
+                                onSelectSong={(video) => {
+                                    setUrl(video.url);
+                                    setVideoId(video.id);
+                                    setSelectedSourceTitle(video.title);
+                                    setUrlError(null);
+                                    setShowRedownloadBanner(false);
+                                    setDownloadStatus('idle');
+                                }}
+                            />
+                            {videoId && (
+                                <div className="mt-4 rounded-2xl border border-purple-500/30 bg-gray-900/80 p-4 shadow-xl">
+                                    <div className="mb-3 flex items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-bold uppercase tracking-wider text-purple-300">已選擇影片</div>
+                                            <div className="truncate font-bold text-white">{selectedSourceTitle || 'YouTube 影片'}</div>
+                                        </div>
+                                        <CheckCircle2 className="shrink-0 text-green-400" size={22} />
+                                    </div>
+                                    <div className="aspect-video overflow-hidden rounded-xl bg-black">
+                                        <iframe className="h-full w-full" src={`https://www.youtube.com/embed/${videoId}`} title={selectedSourceTitle || 'YouTube preview'} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+                                    </div>
+                                    <button onClick={handleDirectDownload} disabled={downloadStatus === 'downloading'} className="mt-4 flex w-full items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-brand-accent to-purple-600 px-5 py-4 text-lg font-bold text-white shadow-lg transition hover:from-purple-500 hover:to-pink-500 disabled:cursor-not-allowed disabled:from-gray-700 disabled:to-gray-700">
+                                        {downloadStatus === 'downloading' ? <Loader2 className="animate-spin" size={22} /> : <Zap size={22} />}
+                                        {downloadStatus === 'downloading' ? `${downloadMessage || '轉換中...'} ${downloadProgress}%` : downloadStatus === 'completed' ? '重新轉換這首歌' : '確認並轉換音訊'}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+'''
+          a = a[:start] + block + a[end:]
+          a = a.replace('>v4.0<', '>v4.0.1<', 1)
+          app.write_text(a, encoding='utf-8')
+
+          p = Path('package.json')
+          data = json.loads(p.read_text(encoding='utf-8'))
+          data['version'] = '4.0.1'
+          p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          Path('PERSISTENT_STORAGE.md').write_text('# VocalTune persistent storage\n\nRuntime data is stored under `/srv/vocaltune` by default.\n\n```bash\nsudo mkdir -p /srv/vocaltune/{downloads,separated,karaoke_output,db_data}\nsudo chown -R $(id -u):$(id -g) /srv/vocaltune\ndocker compose up -d --build\n```\n', encoding='utf-8')
+          PY
+      - run: npm ci && npm run build
+      - name: Commit
+        run: |
+          rm -f .github/workflows/apply-persistent-picker.yml .github/workflows/finalize-pr14.yml .trigger-persistent-picker .trigger-finalize-pr14
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: persist data and add Studio song picker v4.0.1"
+          git push origin HEAD:feat/persistent-data-and-studio-song-picker
