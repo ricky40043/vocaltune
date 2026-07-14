@@ -3,173 +3,30 @@ const fs = require('fs');
 const path = 'components/KaraokePlayer.tsx';
 let source = fs.readFileSync(path, 'utf8');
 
-const apply = (before, after, label) => {
-  if (source.includes(after)) return;
-  if (!source.includes(before)) {
-    throw new Error(`Missing expected block: ${label}`);
+const replaceBetween = (startMarker, endMarker, replacement, label) => {
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start);
+  if (start === -1 || end === -1) {
+    throw new Error(`Missing expected section: ${label}`);
   }
-  source = source.replace(before, after);
+  source = source.slice(0, start) + replacement + source.slice(end);
 };
 
-apply(
-  "    const pitchActiveRef = useRef(false); // Whether pitch shift audio is active\n",
-  "    const pitchActiveRef = useRef(false); // Whether pitch shift audio is active\n    const pitchOutputStartedRef = useRef(false); // Native video may mute only after WebAudio actually starts\n",
-  'pitch output state ref',
+source = source.replace("import { getGrainSettings } from '../utils/audioQuality';\n", '');
+
+replaceBetween(
+  '    // Pitch shift state\n',
+  '    // Helper: load a job by ID\n',
+  `    // Pitch shift state\n    const [pitchSemitones, setPitchSemitones] = useState(0);\n    const backingPlayerRef = useRef<Tone.Player | null>(null);\n    const backingPitchRef = useRef<Tone.PitchShift | null>(null);\n    const vocalsPlayerRef = useRef<Tone.Player | null>(null);\n    const vocalsPitchRef = useRef<Tone.PitchShift | null>(null);\n    const [pitchReady, setPitchReady] = useState(false);\n    const [pitchInitialized, setPitchInitialized] = useState(false);\n    const pitchActiveRef = useRef(false);\n    const pitchOutputStartedRef = useRef(false);\n\n`,
+  'pitch state',
 );
 
-const oldSyncBlock = `    // Start GrainPlayers synced to Transport once they're ready
-    useEffect(() => {
-        if (!pitchReady) return;
-        const video = videoRef.current;
-        if (!video) return;
-
-        const startSync = async () => {
-            try {
-                await Tone.start();
-
-                // Sync GrainPlayers to Transport (start once, never stop)
-                if (videoGrainRef.current) {
-                    videoGrainRef.current.sync().start(0);
-                }
-                if (vocalsGrainRef.current) {
-                    vocalsGrainRef.current.sync().start(0);
-                }
-
-                // Set Transport to current video position
-                Tone.Transport.seconds = video.currentTime;
-                if (!video.paused) {
-                    Tone.Transport.start(undefined, video.currentTime);
-                }
-
-                console.log('[Karaoke] GrainPlayers synced to Transport');
-            } catch (e) {
-                console.error('[Karaoke] Failed to start grain playback:', e);
-            }
-        };
-
-        startSync();
-    }, [pitchReady]);
-
-    // Sync Tone.Transport with video play/pause/seek (always active when pitchReady)
-    useEffect(() => {
-        if (!pitchReady) return;
-        const video = videoRef.current;
-        if (!video) return;
-
-        const onVideoPlay = () => {
-            // Ensure context is running when video plays (especially via native controls)
-            Tone.start();
-            Tone.Transport.start(undefined, video.currentTime);
-        };
-        const onVideoPause = () => {
-            Tone.Transport.pause();
-        };
-        const onVideoSeeked = () => {
-            const wasPlaying = Tone.Transport.state === 'started';
-            Tone.Transport.pause();
-            Tone.Transport.seconds = video.currentTime;
-            if (wasPlaying || !video.paused) {
-                Tone.Transport.start(undefined, video.currentTime);
-            }
-        };
-
-        video.addEventListener('play', onVideoPlay);
-        video.addEventListener('pause', onVideoPause);
-        video.addEventListener('seeked', onVideoSeeked);
-
-        return () => {
-            video.removeEventListener('play', onVideoPlay);
-            video.removeEventListener('pause', onVideoPause);
-            video.removeEventListener('seeked', onVideoSeeked);
-        };
-    }, [pitchReady]);
-`;
-
-const newSyncBlock = `    // Start GrainPlayers directly from the video's current offset.
-    // Transport-scheduled sources can be skipped when the transport jumps forward,
-    // which caused the native video to mute while WebAudio produced no sound.
-    const stopPitchPlayers = useCallback(() => {
-        try { videoGrainRef.current?.stop(); } catch (e) { }
-        try { vocalsGrainRef.current?.stop(); } catch (e) { }
-        pitchOutputStartedRef.current = false;
-    }, []);
-
-    const startPitchPlayersAt = useCallback(async (offset: number) => {
-        const video = videoRef.current;
-        const backing = videoGrainRef.current;
-        if (!video || !backing || pitchSemitones === 0) return false;
-
-        try {
-            await Tone.start();
-            stopPitchPlayers();
-
-            const safeOffset = Math.max(0, Math.min(offset, Math.max(0, backing.buffer.duration - 0.05)));
-            backing.start(undefined, safeOffset);
-            if (playVocals && vocalsGrainRef.current) {
-                const vocalOffset = Math.max(0, Math.min(offset, Math.max(0, vocalsGrainRef.current.buffer.duration - 0.05)));
-                vocalsGrainRef.current.start(undefined, vocalOffset);
-            }
-
-            pitchOutputStartedRef.current = true;
-            video.muted = true;
-            const vocals = vocalsRef.current;
-            if (vocals) {
-                vocals.pause();
-                vocals.muted = true;
-                vocals.volume = 0;
-            }
-            return true;
-        } catch (e) {
-            console.error('[Karaoke] Pitch playback failed; restoring native audio:', e);
-            pitchOutputStartedRef.current = false;
-            video.muted = false;
-            setError('即時升降 Key 啟動失敗，已恢復原始聲音，請再試一次');
-            return false;
-        }
-    }, [pitchSemitones, playVocals, stopPitchPlayers]);
-
-    useEffect(() => {
-        if (!pitchReady || pitchSemitones === 0) return;
-        const video = videoRef.current;
-        if (!video) return;
-
-        if (!video.paused) void startPitchPlayersAt(video.currentTime);
-
-        const onVideoPlay = () => { void startPitchPlayersAt(video.currentTime); };
-        const onVideoPause = () => { stopPitchPlayers(); };
-        const onVideoSeeking = () => { stopPitchPlayers(); video.muted = false; };
-        const onVideoSeeked = () => {
-            if (!video.paused) void startPitchPlayersAt(video.currentTime);
-        };
-
-        video.addEventListener('play', onVideoPlay);
-        video.addEventListener('pause', onVideoPause);
-        video.addEventListener('seeking', onVideoSeeking);
-        video.addEventListener('seeked', onVideoSeeked);
-
-        return () => {
-            video.removeEventListener('play', onVideoPlay);
-            video.removeEventListener('pause', onVideoPause);
-            video.removeEventListener('seeking', onVideoSeeking);
-            video.removeEventListener('seeked', onVideoSeeked);
-            stopPitchPlayers();
-        };
-    }, [pitchReady, pitchSemitones, startPitchPlayersAt, stopPitchPlayers]);
-`;
-
-apply(oldSyncBlock, newSyncBlock, 'Tone.Transport pitch synchronization');
-
-apply(
-  "                video.muted = !!videoGrainRef.current;\n",
-  "                video.muted = pitchOutputStartedRef.current;\n",
-  'premature native video mute',
-);
-
-apply(
-  "            if (video) video.muted = false;\n",
-  "            if (video) video.muted = false;\n            pitchOutputStartedRef.current = false;\n            stopPitchPlayers();\n",
-  'normal mode pitch shutdown',
+replaceBetween(
+  '    // Setup GrainPlayer for audio playback (Backing + Vocals)\n',
+  '    const toggleVideoPlayback = () => {\n',
+  `    // Build a stable Player -> PitchShift chain after the first key-change gesture.\n    useEffect(() => {\n        if (status !== 'completed' || !videoUrl || !pitchInitialized) return;\n\n        let cancelled = false;\n\n        const decodeAudio = async (url: string) => {\n            const response = await fetch(url);\n            if (!response.ok) throw new Error(\`Audio fetch failed: \${response.status}\`);\n            const bytes = await response.arrayBuffer();\n            const audioContext = Tone.getContext().rawContext as AudioContext;\n            const decoded = await audioContext.decodeAudioData(bytes.slice(0));\n            return new Tone.ToneAudioBuffer(decoded);\n        };\n\n        const setupPitchPlayers = async () => {\n            try {\n                const backingUrl = instrumentalUrl || videoUrl;\n                const backingBuffer = await decodeAudio(backingUrl);\n                if (cancelled) return;\n\n                const backingPitch = new Tone.PitchShift();\n                backingPitch.pitch = pitchSemitones;\n                backingPitch.toDestination();\n\n                const backingPlayer = new Tone.Player({\n                    url: backingBuffer,\n                    autostart: false,\n                });\n                backingPlayer.volume.value = -2;\n                backingPlayer.connect(backingPitch);\n\n                backingPlayerRef.current = backingPlayer;\n                backingPitchRef.current = backingPitch;\n\n                if (vocalsUrl) {\n                    try {\n                        const vocalsBuffer = await decodeAudio(vocalsUrl);\n                        if (cancelled) return;\n\n                        const vocalsPitch = new Tone.PitchShift();\n                        vocalsPitch.pitch = pitchSemitones;\n                        vocalsPitch.toDestination();\n\n                        const vocalsPlayer = new Tone.Player({\n                            url: vocalsBuffer,\n                            autostart: false,\n                        });\n                        vocalsPlayer.volume.value = -2;\n                        vocalsPlayer.connect(vocalsPitch);\n\n                        vocalsPlayerRef.current = vocalsPlayer;\n                        vocalsPitchRef.current = vocalsPitch;\n                    } catch (vocalsError) {\n                        console.warn('[Karaoke] Vocal pitch chain unavailable:', vocalsError);\n                    }\n                }\n\n                if (!cancelled) {\n                    setPitchReady(true);\n                    console.log('[Karaoke] Player/PitchShift chain ready');\n                }\n            } catch (setupError) {\n                console.error('[Karaoke] Failed to initialize pitch audio:', setupError);\n                setPitchReady(false);\n                setError('升降 Key 音訊載入失敗，已保留原始聲音');\n            }\n        };\n\n        void setupPitchPlayers();\n\n        return () => {\n            cancelled = true;\n            try { backingPlayerRef.current?.stop(); } catch (e) { }\n            try { vocalsPlayerRef.current?.stop(); } catch (e) { }\n            try { backingPlayerRef.current?.dispose(); } catch (e) { }\n            try { vocalsPlayerRef.current?.dispose(); } catch (e) { }\n            try { backingPitchRef.current?.dispose(); } catch (e) { }\n            try { vocalsPitchRef.current?.dispose(); } catch (e) { }\n            backingPlayerRef.current = null;\n            vocalsPlayerRef.current = null;\n            backingPitchRef.current = null;\n            vocalsPitchRef.current = null;\n            pitchOutputStartedRef.current = false;\n            pitchActiveRef.current = false;\n            setPitchReady(false);\n        };\n    }, [status, videoUrl, vocalsUrl, instrumentalUrl, pitchInitialized]);\n\n    const stopPitchPlayers = useCallback(() => {\n        try { backingPlayerRef.current?.stop(); } catch (e) { }\n        try { vocalsPlayerRef.current?.stop(); } catch (e) { }\n        pitchOutputStartedRef.current = false;\n    }, []);\n\n    const restoreNativeAudio = useCallback(() => {\n        const video = videoRef.current;\n        const vocals = vocalsRef.current;\n        if (video) video.muted = false;\n        if (vocals) {\n            vocals.muted = !playVocals;\n            vocals.volume = playVocals ? 1 : 0;\n        }\n    }, [playVocals]);\n\n    const startPitchPlayersAt = useCallback(async (offset: number) => {\n        const video = videoRef.current;\n        const backingPlayer = backingPlayerRef.current;\n        const backingPitch = backingPitchRef.current;\n        if (!video || !backingPlayer || !backingPitch || pitchSemitones === 0) return false;\n\n        try {\n            await Tone.start();\n            const rawContext = Tone.getContext().rawContext as AudioContext;\n            if (rawContext.state !== 'running') await rawContext.resume();\n\n            stopPitchPlayers();\n            backingPitch.pitch = pitchSemitones;\n            if (vocalsPitchRef.current) vocalsPitchRef.current.pitch = pitchSemitones;\n\n            const backingDuration = backingPlayer.buffer.duration || 0;\n            const safeOffset = Math.max(0, Math.min(offset, Math.max(0, backingDuration - 0.05)));\n            backingPlayer.start('+0.02', safeOffset);\n\n            if (playVocals && vocalsPlayerRef.current) {\n                const vocalsDuration = vocalsPlayerRef.current.buffer.duration || 0;\n                const vocalOffset = Math.max(0, Math.min(offset, Math.max(0, vocalsDuration - 0.05)));\n                vocalsPlayerRef.current.start('+0.02', vocalOffset);\n            }\n\n            pitchOutputStartedRef.current = true;\n            video.muted = true;\n\n            const nativeVocals = vocalsRef.current;\n            if (nativeVocals) {\n                nativeVocals.pause();\n                nativeVocals.muted = true;\n                nativeVocals.volume = 0;\n            }\n\n            setError(null);\n            return true;\n        } catch (playbackError) {\n            console.error('[Karaoke] Pitch playback failed:', playbackError);\n            stopPitchPlayers();\n            restoreNativeAudio();\n            setError('升降 Key 啟動失敗，已自動恢復原始聲音');\n            return false;\n        }\n    }, [pitchSemitones, playVocals, restoreNativeAudio, stopPitchPlayers]);\n\n    useEffect(() => {\n        const video = videoRef.current;\n        const isPitchActive = pitchSemitones !== 0;\n        pitchActiveRef.current = isPitchActive;\n\n        if (!video) return;\n\n        if (!isPitchActive) {\n            stopPitchPlayers();\n            restoreNativeAudio();\n            return;\n        }\n\n        if (!pitchReady) {\n            // Keep native audio audible while the processed buffers are still loading.\n            restoreNativeAudio();\n            return;\n        }\n\n        if (!video.paused) void startPitchPlayersAt(video.currentTime);\n\n        const onPlay = () => { void startPitchPlayersAt(video.currentTime); };\n        const onPause = () => { stopPitchPlayers(); };\n        const onSeeking = () => {\n            stopPitchPlayers();\n            restoreNativeAudio();\n        };\n        const onSeeked = () => {\n            if (!video.paused) void startPitchPlayersAt(video.currentTime);\n        };\n\n        video.addEventListener('play', onPlay);\n        video.addEventListener('pause', onPause);\n        video.addEventListener('seeking', onSeeking);\n        video.addEventListener('seeked', onSeeked);\n\n        return () => {\n            video.removeEventListener('play', onPlay);\n            video.removeEventListener('pause', onPause);\n            video.removeEventListener('seeking', onSeeking);\n            video.removeEventListener('seeked', onSeeked);\n            stopPitchPlayers();\n        };\n    }, [pitchReady, pitchSemitones, startPitchPlayersAt, stopPitchPlayers, restoreNativeAudio]);\n\n    const changePitch = async (delta: number) => {\n        try {\n            await Tone.start();\n            const rawContext = Tone.getContext().rawContext as AudioContext;\n            if (rawContext.state !== 'running') await rawContext.resume();\n            if (!pitchInitialized) setPitchInitialized(true);\n            setPitchSemitones(current => Math.max(-12, Math.min(12, current + delta)));\n        } catch (audioError) {\n            console.error('[Karaoke] Unable to unlock WebAudio:', audioError);\n            restoreNativeAudio();\n            setError('瀏覽器未允許升降 Key 音訊，請再點一次播放後重試');\n        }\n    };\n\n    const resetPitch = async () => {\n        stopPitchPlayers();\n        setPitchSemitones(0);\n        restoreNativeAudio();\n    };\n\n`,
+  'pitch playback implementation',
 );
 
 fs.writeFileSync(path, source);
-console.log('Karaoke pitch audio patch applied.');
+console.log('Karaoke pitch audio migrated to Player/PitchShift.');
