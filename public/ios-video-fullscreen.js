@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = 'v4.0.12';
+  const APP_VERSION = 'v4.0.13';
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
