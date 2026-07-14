@@ -75,27 +75,52 @@ export const WaveformTrack: React.FC<WaveformTrackProps> = ({
 
         // ... (rest of logic handles internal state only if not forced)
 
+        const stopLoop = () => {
+            if (animationRef.current) {
+                cancelAnimationFrame(animationRef.current);
+                animationRef.current = null;
+            }
+        };
+
         const updateState = () => {
             if (!isDragging) {
                 setInternalCurrentTime(audioElement.currentTime);
             }
-            setInternalIsPlaying(!audioElement.paused);
+            if (audioElement.paused) {
+                setInternalIsPlaying(false);
+                animationRef.current = null;
+                return;
+            }
+            setInternalIsPlaying(true);
             animationRef.current = requestAnimationFrame(updateState);
         };
 
-        const onPlay = () => setInternalIsPlaying(true);
-        const onPause = () => setInternalIsPlaying(false);
-        const onEnded = () => setInternalIsPlaying(false);
+        const onPlay = () => {
+            setInternalIsPlaying(true);
+            if (animationRef.current === null) updateState();
+        };
+        const onPause = () => {
+            setInternalIsPlaying(false);
+            stopLoop();
+        };
+        const onEnded = () => {
+            setInternalIsPlaying(false);
+            stopLoop();
+        };
 
         audioElement.addEventListener('play', onPlay);
         audioElement.addEventListener('pause', onPause);
         audioElement.addEventListener('ended', onEnded);
 
-        // Start loop
-        updateState();
+        // Sync once immediately; only run the per-frame loop while actually playing
+        setInternalIsPlaying(!audioElement.paused);
+        setInternalCurrentTime(audioElement.currentTime);
+        if (!audioElement.paused) {
+            updateState();
+        }
 
         return () => {
-            if (animationRef.current) cancelAnimationFrame(animationRef.current);
+            stopLoop();
             audioElement.removeEventListener('play', onPlay);
             audioElement.removeEventListener('pause', onPause);
             audioElement.removeEventListener('ended', onEnded);

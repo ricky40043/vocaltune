@@ -638,8 +638,7 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                                     <span className="min-w-12 text-center text-sm font-bold text-white">Key {pitchSemitones > 0 ? '+' : ''}{pitchSemitones}</span>
                                     <button onClick={() => changePitch(1)} className="rounded-lg bg-white/10 p-2 text-white" title="升 Key"><Plus size={18}/></button>
                                     <button onClick={() => setPlayVocals(v => !v)} disabled={!vocalsUrl} className={`ml-1 rounded-lg px-3 py-2 text-sm font-bold ${playVocals ? 'bg-purple-600 text-white' : 'bg-white/10 text-gray-200'}`}>{playVocals ? '人聲開' : '人聲關'}</button>
-                                    <button onClick={() => setVideoFit(v => v === 'contain' ? 'cover' : 'contain')} className="ml-auto rounded-lg bg-white/10 px-3 py-2 text-xs font-bold text-white">{videoFit === 'contain' ? '滿版' : '完整'}</button>
-                                    <button onClick={toggleFullscreen} className="rounded-lg bg-white/10 p-2 text-white" title="全螢幕">{isFullscreen ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}</button>
+                                    <button onClick={toggleFullscreen} className="ml-auto rounded-lg bg-white/10 p-2 text-white" title="全螢幕">{isFullscreen ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}</button>
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <button type="button" onClick={toggleVideoPlayback} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-purple-600 text-white">{videoPlaying ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor"/>}</button>
