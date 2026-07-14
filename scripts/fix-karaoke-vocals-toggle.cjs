@@ -12,7 +12,6 @@ const apply = (before, after, label) => {
 };
 
 // Allow the caller to explicitly choose whether the vocal stem should start.
-// This avoids waiting for React state/effect propagation after tapping the vocal button.
 apply(
   '    const startPitchPlayersAt = useCallback(async (offset: number) => {\n',
   '    const startPitchPlayersAt = useCallback(async (offset: number, vocalsEnabled: boolean = playVocals) => {\n',
@@ -40,15 +39,28 @@ const toggleBlock = `    const toggleVocals = useCallback(async () => {
 
         setPlayVocals(nextEnabled);
 
-        if (pitchSemitones !== 0 && pitchReady && video && !video.paused) {
-            // Restart both processed stems immediately using the new vocal state.
-            // Passing nextEnabled avoids the stale playVocals value from this render.
-            await startPitchPlayersAt(video.currentTime, nextEnabled);
+        if (pitchSemitones !== 0 && pitchReady && video) {
+            const processedVocals = vocalsPlayerRef.current;
+
+            if (!video.paused && nextEnabled && processedVocals) {
+                try {
+                    // Keep the backing Player running. Only add the vocal stem at
+                    // the video's current position so toggling vocals cannot cut music.
+                    try { processedVocals.stop(); } catch (e) { }
+                    const vocalsDuration = processedVocals.buffer.duration || 0;
+                    const vocalOffset = Math.max(0, Math.min(video.currentTime, Math.max(0, vocalsDuration - 0.05)));
+                    processedVocals.start('+0.02', vocalOffset);
+                } catch (playError) {
+                    console.warn('[Karaoke] Processed vocal playback failed:', playError);
+                }
+            } else if (!nextEnabled && processedVocals) {
+                try { processedVocals.stop(); } catch (e) { }
+            }
+
             return;
         }
 
-        // Native playback mode: apply the new state immediately instead of waiting
-        // for the React effect, which is important on mobile Safari.
+        // Native playback mode: apply the new state immediately.
         if (nativeVocals) {
             nativeVocals.muted = !nextEnabled;
             nativeVocals.volume = nextEnabled ? 1 : 0;
@@ -64,7 +76,7 @@ const toggleBlock = `    const toggleVocals = useCallback(async () => {
                 nativeVocals.pause();
             }
         }
-    }, [playVocals, pitchSemitones, pitchReady, startPitchPlayersAt]);
+    }, [playVocals, pitchSemitones, pitchReady]);
 
 `;
 
@@ -80,7 +92,6 @@ apply(
   'visible vocal button handler',
 );
 
-// Also route the legacy hidden checkbox through the same playback-safe handler.
 apply(
   `                                            onChange={(e) => {
                                                 Tone.start().catch(() => { });
@@ -93,4 +104,4 @@ apply(
 );
 
 fs.writeFileSync(path, source);
-console.log('Karaoke vocal toggle patch applied.');
+console.log('Karaoke vocal toggle patch applied without restarting backing audio.');
