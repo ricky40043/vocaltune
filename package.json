@@ -1,11 +1,11 @@
 {
   "name": "vocaltune---youtube-practice-studio",
   "private": true,
-  "version": "4.0.14",
+  "version": "4.0.15",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/fix-karaoke-pitch-audio.cjs && node scripts/fix-karaoke-vocals-toggle.cjs && vite dev",
-    "build": "node scripts/fix-karaoke-pitch-audio.cjs && node scripts/fix-karaoke-vocals-toggle.cjs && vite build",
+    "dev": "node scripts/fix-karaoke-pitch-audio.cjs && node scripts/fix-karaoke-vocals-toggle.cjs && node scripts/fix-karaoke-reset-vocals-and-mobile-warning.cjs && vite dev",
+    "build": "node scripts/fix-karaoke-pitch-audio.cjs && node scripts/fix-karaoke-vocals-toggle.cjs && node scripts/fix-karaoke-reset-vocals-and-mobile-warning.cjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
