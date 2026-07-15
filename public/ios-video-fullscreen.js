@@ -1,5 +1,4 @@
 (() => {
-  const APP_VERSION = 'v4.0.14';
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -34,13 +33,6 @@
   }, true);
 
   const updateUi = () => {
-    document.querySelectorAll('div, span').forEach((element) => {
-      const text = element.textContent?.trim() || '';
-      if (/^v\d+\.\d+\.\d+$/.test(text)) {
-        element.textContent = APP_VERSION;
-      }
-    });
-
     document.querySelectorAll('button').forEach((button) => {
       const text = button.textContent?.trim();
       if (text === '完整' || text === '滿版') {
