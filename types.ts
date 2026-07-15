@@ -16,6 +16,7 @@ declare global {
     YT: any;
     onYouTubeIframeAPIReady: () => void;
   }
+  const __APP_VERSION__: string;
 }
 
 export enum PlayerState {
