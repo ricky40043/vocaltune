@@ -18,6 +18,7 @@ def search_youtube(query: str, limit: int = 10):
         
         command = [
             "yt-dlp",
+            "--js-runtimes", "deno",
             "--dump-json",
             "--flat-playlist",
             "--no-warnings",

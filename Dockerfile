@@ -6,15 +6,18 @@ FROM python:3.10-slim
 # git: required for some pip packages
 RUN apt-get update && apt-get install -y ffmpeg nodejs npm git && rm -rf /var/lib/apt/lists/*
 
+# The existing downloader requests Deno; preserve it when rebuilding the app.
+COPY --from=denoland/deno:bin-2.3.3 /deno /usr/local/bin/deno
+
 WORKDIR /app
 
 # Install Backend Dependencies
 COPY backend-api/requirements.txt requirements.txt
+# The local container provides the CPU fallback; Cloud Run owns GPU inference.
+RUN pip install --no-cache-dir torch==2.5.1+cpu torchaudio==2.5.1+cpu \
+    --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
 RUN pip install --no-cache-dir -r requirements.txt
-# Manually install missing key packages
-# Pin torchaudio<2.6 to avoid "TorchCodec is required" error
-RUN pip install --no-cache-dir "demucs" "torchaudio<2.6"
-RUN pip install --no-cache-dir https://github.com/yt-dlp/yt-dlp/archive/master.zip
+# yt-dlp is installed from the Python-compatible release in requirements.txt.
 
 # Copy Source Code
 COPY . .

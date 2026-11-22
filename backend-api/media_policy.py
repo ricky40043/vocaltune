@@ -76,7 +76,7 @@ def probe_file_duration(path: Path) -> float:
 
 def probe_youtube_duration(url: str) -> float:
     result = subprocess.run(
-        ["yt-dlp", "--no-playlist", "--skip-download", "--print", "%(duration)s", "--no-warnings", url],
+        ["yt-dlp", "--js-runtimes", "deno", "--no-playlist", "--skip-download", "--print", "%(duration)s", "--no-warnings", url],
         capture_output=True, text=True, timeout=30,
     )
     duration = parse_duration(result.stdout.strip().splitlines()[0]) if result.returncode == 0 and result.stdout.strip() else None

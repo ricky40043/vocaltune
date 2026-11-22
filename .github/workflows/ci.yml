@@ -15,16 +15,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: cloud_service/requirements-test.txt
       # 後端有 torch/demucs 等重量級 ML 套件，full install 太慢；
       # 這裡只做語法檢查（compile），抓語法錯就好。
       - name: Syntax check (compileall, 排除任何 venv)
-        run: python -m compileall backend-api -x 'venv'
+        run: python -m compileall backend-api cloud_service -x 'venv'
+      - name: Install lightweight test dependencies
+        run: |
+          python -m pip install -r cloud_service/requirements-test.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
       - name: Media duration policy tests
         run: PYTHONPATH=backend-api python -m unittest backend-api/test_media_policy.py -v
       - name: Separation history recovery tests
         run: PYTHONPATH=backend-api python -m unittest backend-api/test_history_tracks.py -v
       - name: Separation progress tests
         run: PYTHONPATH=backend-api python -m unittest backend-api/test_media_progress.py -v
+      - name: Cloud API, transfer retry, quota and fallback tests
+        run: python -m unittest discover -s cloud_service/tests -v
+      - name: Shell syntax
+        run: bash -n deploy.sh start.sh
 
   frontend:
     name: Frontend
@@ -38,3 +49,5 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci || npm install
       - run: npm run build
+      - name: Verify build leaves tracked source unchanged
+        run: git diff --exit-code

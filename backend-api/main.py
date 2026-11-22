@@ -24,6 +24,8 @@ from media_progress import map_demucs_progress
 
 # Directories
 BASE_DIR = Path(__file__).parent
+QUEUE_DIR = Path(os.getenv("VOCALTUNE_QUEUE_DIR", str(BASE_DIR)))
+QUEUE_DIR.mkdir(parents=True, exist_ok=True)
 DOWNLOADS_DIR = BASE_DIR / "downloads"
 SEPARATED_DIR = BASE_DIR / "separated"
 DOWNLOADS_DIR.mkdir(exist_ok=True)
@@ -32,6 +34,7 @@ SEPARATED_DIR.mkdir(exist_ok=True)
 from job_store import job_status_store, update_job_status, get_job_status
 from karaoke import process_karaoke_job, KARAOKE_DIR
 from ai_device import demucs_python, get_demucs_device
+from separation_client import try_cloud_separation
 from utils.youtube_search import search_youtube
 import db
 
@@ -39,12 +42,12 @@ import db
 def get_queue_file(user: str = None) -> Path:
     """取得佇列檔案路徑，支援個人歌單"""
     if user:
-        return BASE_DIR / f"queue_{user}.json"
-    return BASE_DIR / "queue.json"
+        return QUEUE_DIR / f"queue_{user}.json"
+    return QUEUE_DIR / "queue.json"
 
 # Ensure default queue file exists
-if not (BASE_DIR / "queue.json").exists():
-    with open(BASE_DIR / "queue.json", "w") as f:
+if not (QUEUE_DIR / "queue.json").exists():
+    with open(QUEUE_DIR / "queue.json", "w") as f:
         json.dump([], f)
 
 def load_queue(user: str = None):
@@ -67,7 +70,7 @@ async def queue_processor():
     
     # Reset stuck 'processing' items across all queue files
     try:
-        for qf in BASE_DIR.glob("queue*.json"):
+        for qf in QUEUE_DIR.glob("queue*.json"):
             user = None
             fname = qf.stem  # e.g. 'queue' or 'queue_ricky'
             if fname.startswith("queue_"):
@@ -92,7 +95,7 @@ async def queue_processor():
     while True:
         try:
             # Scan all queue files for pending items
-            for qf in BASE_DIR.glob("queue*.json"):
+            for qf in QUEUE_DIR.glob("queue*.json"):
                 user = None
                 fname = qf.stem
                 if fname.startswith("queue_"):
@@ -185,7 +188,7 @@ async def auto_cleanup():
             preserved_job_ids, preserved_source_names = db.get_preserved_history_media()
             
             # 1. 清除過期的 queue items
-            for qf in BASE_DIR.glob("queue*.json"):
+            for qf in QUEUE_DIR.glob("queue*.json"):
                 try:
                     with open(qf, "r") as f:
                         queue = json.load(f)
@@ -664,7 +667,7 @@ async def download_youtube_audio(job_id: str, youtube_url: str):
 
         common = [
             "yt-dlp", "--no-playlist", "--no-progress", "--no-warnings",
-            "--extractor-args", "youtube:player_client=android",
+            "--js-runtimes", "deno",
             "--ffmpeg-location", ffmpeg_path,
         ]
         if Path("cookies.txt").exists():
@@ -752,83 +755,92 @@ async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
             "message": "正在啟動 AI 分離引擎..."
         })
         
-        # 決定 Demucs 模型：4軌使用 htdemucs，6軌使用 htdemucs_6s
-        model_name = "htdemucs" if stems == "4" else "htdemucs_6s"
-        
-        # Run Demucs
-        # Using -u to force unbuffered binary stdout/stderr
-        demucs_device = get_demucs_device()
-        print(f"[Backend] Starting Demucs command for job {job_id} on {demucs_device} with {stems} stems ({model_name})...")
-        cmd = [
-            demucs_python(), "-u", "-m", "demucs",
-            "-n", model_name,
-            "-d", demucs_device,
-            "-o", str(output_dir),
-            str(audio_path)
-        ]
-        
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+        cloud_stems = await try_cloud_separation(
+            audio_path, output_dir, int(stems),
+            on_status=lambda message: update_job_status(job_id, {"message": message}),
         )
+        if cloud_stems is None:
+            # 決定 Demucs 模型：4軌使用 htdemucs，6軌使用 htdemucs_6s
+            model_name = "htdemucs" if stems in {"2", "4"} else "htdemucs_6s"
         
-        # Real-time output processing
-        async def read_stream(stream, is_stderr=False):
-            buffer = ""
-            while True:
-                # Read chunks instead of lines to handle progress bars that use \r
-                chunk = await stream.read(100)
-                if not chunk:
-                    break
+            # Run Demucs
+            # Using -u to force unbuffered binary stdout/stderr
+            demucs_device = get_demucs_device()
+            update_job_status(job_id, {"message": f"正在使用本地 {demucs_device} 分軌（速度較慢）..."})
+            print(f"[Backend] Starting Demucs command for job {job_id} on {demucs_device} with {stems} stems ({model_name})...")
+            cmd = [
+                demucs_python(), "-u", "-m", "demucs",
+                "-n", model_name,
+                "-d", demucs_device,
+                "-o", str(output_dir),
+                str(audio_path)
+            ]
+        
+            if stems == "2":
+                cmd.extend(["--two-stems", "vocals"])
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+        
+            # Real-time output processing
+            async def read_stream(stream, is_stderr=False):
+                buffer = ""
+                while True:
+                    # Read chunks instead of lines to handle progress bars that use \r
+                    chunk = await stream.read(100)
+                    if not chunk:
+                        break
                 
-                chunk_str = chunk.decode(errors='replace')
-                buffer += chunk_str
+                    chunk_str = chunk.decode(errors='replace')
+                    buffer += chunk_str
                 
-                # Split by either newline or carriage return
-                while '\n' in buffer or '\r' in buffer:
-                    if '\n' in buffer:
-                        line, buffer = buffer.split('\n', 1)
-                    elif '\r' in buffer:
-                        line, buffer = buffer.split('\r', 1)
+                    # Split by either newline or carriage return
+                    while '\n' in buffer or '\r' in buffer:
+                        if '\n' in buffer:
+                            line, buffer = buffer.split('\n', 1)
+                        elif '\r' in buffer:
+                            line, buffer = buffer.split('\r', 1)
                     
-                    line = line.strip()
-                    if not line:
-                        continue
+                        line = line.strip()
+                        if not line:
+                            continue
                         
-                    print(f"[Demucs-{job_id}] {line}")  # Log to server console
+                        print(f"[Demucs-{job_id}] {line}")  # Log to server console
                     
-                    # Check for Demucs separation progress (e.g., "54%|███...| 175.5/345.15 [01:27<01:13, 2.16seconds/s]")
-                    # This has format: XX%|progress_bar|current/total [time<remaining, speed]
-                    if "%" in line and "|" in line:
-                        # Extract percentage
-                        try:
-                            percent_str = line.split('%')[0].strip()
-                            # Get last 3 chars which should be the number
-                            percent = percent_str[-3:].strip()
-                            if percent.isdigit():
-                                demucs_percent = int(percent)
-                                progress_value = map_demucs_progress(demucs_percent)
-                                update_job_status(job_id, {
-                                    "status": "separating",
-                                    "progress": progress_value,
-                                    "message": f"AI 音軌分離中... {demucs_percent}%"
-                                })
-                        except:
-                            pass
+                        # Check for Demucs separation progress (e.g., "54%|███...| 175.5/345.15 [01:27<01:13, 2.16seconds/s]")
+                        # This has format: XX%|progress_bar|current/total [time<remaining, speed]
+                        if "%" in line and "|" in line:
+                            # Extract percentage
+                            try:
+                                percent_str = line.split('%')[0].strip()
+                                # Get last 3 chars which should be the number
+                                percent = percent_str[-3:].strip()
+                                if percent.isdigit():
+                                    demucs_percent = int(percent)
+                                    progress_value = map_demucs_progress(demucs_percent)
+                                    update_job_status(job_id, {
+                                        "status": "separating",
+                                        "progress": progress_value,
+                                        "message": f"本地音軌分離中 ({demucs_device})... {demucs_percent}%"
+                                    })
+                            except:
+                                pass
  
-        # Wait for both streams and the process
-        await asyncio.gather(
-            read_stream(process.stdout),
-            read_stream(process.stderr, is_stderr=True),
-            process.wait()
-        )
+            # Wait for both streams and the process
+            await asyncio.gather(
+                read_stream(process.stdout),
+                read_stream(process.stderr, is_stderr=True),
+                process.wait()
+            )
         
-        if process.returncode != 0:
-            error_msg = "Demucs process failed"
-            # Since we consumed streams, we can't get stderr here easily unless we stored it.
-            # But the logs should have shown it.
-            raise Exception(f"分離失敗 (Exit Code: {process.returncode}) - 請查看後端日誌")
+            if process.returncode != 0:
+                error_msg = "Demucs process failed"
+                # Since we consumed streams, we can't get stderr here easily unless we stored it.
+                # But the logs should have shown it.
+                raise Exception(f"分離失敗 (Exit Code: {process.returncode}) - 請查看後端日誌")
         
         update_job_status(job_id, {
             "status": "processing",
@@ -838,7 +850,7 @@ async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
         
         # Find separated files
         audio_name = Path(audio_path).stem
-        stems_dir = output_dir / model_name / audio_name
+        stems_dir = cloud_stems or (output_dir / model_name / audio_name)
         
         if not stems_dir.exists():
             # Try finding in alternative paths
@@ -851,9 +863,9 @@ async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
         # Collect track URLs based on stems option
         tracks = {}
         
-        if stems == "4":
-            # 4軌模式：人聲、鼓組、Bass、其他
-            track_names = ["vocals", "drums", "bass", "other"]
+        if stems in {"2", "4"}:
+            # 2/4 軌模式：人聲、鼓組、Bass、其他
+            track_names = ["vocals", "no_vocals"] if stems == "2" else ["vocals", "drums", "bass", "other"]
             for track_name in track_names:
                 track_file = stems_dir / f"{track_name}.wav"
                 if track_file.exists():
@@ -877,7 +889,7 @@ async def separate_audio_local(job_id: str, audio_path: str, stems: str = "6"):
         update_job_status(job_id, {
             "status": "completed",
             "progress": 100,
-            "message": f"分離完成！已產生 {len(tracks)} 個音軌",
+            "message": f"{'雲端 GPU' if cloud_stems else '本地'}分離完成！已產生 {len(tracks)} 個音軌",
             "tracks": tracks
         })
         
@@ -947,6 +959,7 @@ def get_youtube_title(url: str) -> Optional[str]:
         import json
         command = [
             "yt-dlp",
+            "--js-runtimes", "deno",
             "--dump-json",
             "--flat-playlist",
             "--no-warnings",
@@ -979,6 +992,8 @@ async def separate_local(request: SeparateRequest, background_tasks: BackgroundT
 
     file_path = request.file_path
     stems = request.stems or "6"
+    if stems not in {"2", "4", "6"}:
+        raise HTTPException(status_code=422, detail="stems must be 2, 4, or 6")
     username = request.username or "guest_default"
     youtube_url = request.youtube_url
 

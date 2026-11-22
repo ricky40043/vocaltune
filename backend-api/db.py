@@ -10,6 +10,8 @@ SEPARATED_DIR = BASE_DIR / "separated"
 DOWNLOADS_DIR = BASE_DIR / "downloads"
 
 def expected_track_names(stems: str) -> list:
+    if str(stems) == "2":
+        return ["vocals", "no_vocals"]
     return ["vocals", "drums", "bass", "other"] if str(stems) == "4" else ["vocals", "drums", "bass", "guitar", "piano", "other"]
 
 def get_existing_track_urls(job_id: str, stems: str) -> dict:

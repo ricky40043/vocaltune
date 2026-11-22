@@ -27,4 +27,21 @@ jobs:
           # 預設 SSH command timeout 會在 image exporting 階段提早中止。
           command_timeout: 30m
           script: |
+            # Preserve the ADC mount when this host has cloud separation enabled.
+            # The shared deploy wrapper uses plain `docker compose`, which reads
+            # COMPOSE_FILE for build, restart, recovery and status commands.
+            if python3 - <<'PY'
+            from pathlib import Path
+            path = Path('/home/ricky/deployments/apps/vocaltune/.env')
+            enabled = '0'
+            if path.is_file():
+                for line in path.read_text().splitlines():
+                    name, separator, value = line.partition('=')
+                    if separator and name.strip() == 'SEPARATION_CLOUD_ENABLED':
+                        enabled = value.split('#', 1)[0].strip().strip("\"'")
+            raise SystemExit(0 if enabled == '1' else 1)
+            PY
+            then
+              export COMPOSE_FILE='/home/ricky/deployments/apps/vocaltune/docker-compose.yml:/home/ricky/deployments/apps/vocaltune/docker-compose.cloud.yml'
+            fi
             /home/ricky/deployments/scripts/deploy-app.sh vocaltune

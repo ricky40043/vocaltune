@@ -8,7 +8,14 @@ pydantic==2.5.3
 librosa==0.10.1
 numpy==1.26.3
 soundfile==0.12.1
-yt-dlp>=2025.01.26
+yt-dlp[default]>=2026.08.19
 basic-pitch
 tensorflow<2.16
 scikit-learn<=1.5.1
+
+# Cloud REST client; retain local Demucs as fallback.
+httpx==0.28.1
+google-auth==2.38.0
+requests==2.32.3
+demucs==4.0.1
+torchaudio<2.6
