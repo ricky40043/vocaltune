@@ -35,6 +35,7 @@ from job_store import job_status_store, update_job_status, get_job_status
 from karaoke import process_karaoke_job, KARAOKE_DIR
 from ai_device import demucs_python, get_demucs_device
 from separation_client import try_cloud_separation
+from cloud_scaling import get_idle_controller, close_idle_controller
 from utils.youtube_search import search_youtube
 import db
 
@@ -396,8 +397,17 @@ async def admin_mode_login(request: AdminModeLogin):
 @app.on_event("startup")
 async def startup_event():
     db.init_db()
+    try:
+        get_idle_controller()
+    except Exception as exc:
+        logging.warning("Cloud idle controller configuration invalid (%s)", type(exc).__name__)
     asyncio.create_task(queue_processor())
     asyncio.create_task(auto_cleanup())
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await close_idle_controller()
 
 @app.get("/api/youtube/search")
 async def search_youtube_endpoint(q: str):

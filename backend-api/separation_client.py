@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
+from cloud_scaling import get_idle_controller
 
 LOG = logging.getLogger(__name__)
 STEM_NAMES = {
@@ -91,6 +92,8 @@ async def try_cloud_separation(audio_path, output_dir, stems=6, on_status=None):
         LOG.warning("Cloud separation configuration/input unsupported; using local inference")
         return None
     encoded = None
+    controller = None
+    controller_acquired = False
     started = time.monotonic()
     received = 0
     phase = "preparing"
@@ -121,6 +124,12 @@ async def try_cloud_separation(audio_path, output_dir, stems=6, on_status=None):
                 raise
             if process.returncode or upload.stat().st_size > 29 * 1024 * 1024:
                 return None
+        controller = get_idle_controller()
+        if controller is not None:
+            phase = "wake"
+            notify("正在喚醒雲端 GPU 服務...")
+            await controller.acquire()
+            controller_acquired = True
         headers = {"X-API-Key": key}
         # IAM blocks unauthorized traffic before a GPU container can be started.
         headers["Authorization"] = "Bearer " + await asyncio.wait_for(
@@ -196,5 +205,9 @@ async def try_cloud_separation(audio_path, output_dir, stems=6, on_status=None):
         LOG.warning("Cloud separation unavailable (%s); using local inference", type(exc).__name__)
         return None
     finally:
+        # Includes upload, CUDA inference, ZIP download and validation. Never
+        # count an active streaming response as idle, including concurrent songs.
+        if controller_acquired:
+            await controller.release()
         if encoded is not None:
             encoded.cleanup()

@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend-api'))
 import separation_client as client
+from cloud_scaling import IdleController
 from cloud_service import main
 from cloud_service.quota import FirestoreQuota, QuotaExceeded
 
@@ -178,6 +179,40 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, headers={'content-type': 'application/zip'}, content=archive_bytes())
         result = await self.invoke(handle)
         self.assertEqual({p.name for p in result.iterdir()}, {'vocals.wav', 'no_vocals.wav'})
+
+    async def test_idle_timer_waits_for_complete_zip_download(self):
+        now, calls = [0], []
+        controller = IdleController(calls.append, clock=lambda: now[0])
+        good = archive_bytes()
+        case = self
+        class Download(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield good[:20]
+                now[0] = 1000
+                await controller.check_idle()
+                case.assertEqual(controller.active, 1)
+                case.assertEqual(calls, [True])
+                yield good[20:]
+        with patch.object(client, 'get_idle_controller', return_value=controller):
+            result = await self.invoke(lambda request: httpx.Response(
+                200, headers={'content-type': 'application/zip'}, stream=Download()))
+        self.assertIsNotNone(result)
+        self.assertEqual(controller.active, 0)
+        now[0] = 1119
+        await controller.check_idle()
+        self.assertEqual(calls, [True])
+        now[0] = 1120
+        await controller.check_idle()
+        self.assertEqual(calls, [True, False])
+
+    async def test_quota_failure_releases_idle_lease_and_does_not_wake_on_cooldown(self):
+        calls = []
+        controller = IdleController(calls.append)
+        with patch.object(client, 'get_idle_controller', return_value=controller):
+            self.assertIsNone(await self.invoke(lambda request: httpx.Response(429)))
+            self.assertEqual(controller.active, 0)
+            self.assertIsNone(await self.invoke(lambda request: self.fail('cooldown must not send')))
+        self.assertEqual(calls, [True])
 
     async def test_429_fallback_and_cooldown(self):
         handler = unittest.mock.Mock(return_value=httpx.Response(429))

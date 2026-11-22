@@ -33,14 +33,20 @@ MAX_MONTHLY_GPU_SECONDS=${MAX_MONTHLY_GPU_SECONDS:-$(setup_value monthly_gpu_sec
 CALLER_MEMBER=${CALLER_MEMBER:-serviceAccount:$(setup_value caller_service_account YOUR_CALLER_SERVICE_ACCOUNT)}
 API_KEY_FILE=${API_KEY_FILE:-$(setup_value api_key_file /path/to/private-api-key-file)}
 BILLING_ACCOUNT_ID=${BILLING_ACCOUNT_ID:-$(setup_value billing_account '')}
-CLOUD_RUN_BUDGET_CURRENCY=${CLOUD_RUN_BUDGET_CURRENCY:-$(setup_value run_budget_currency USD)}
-CLOUD_RUN_BUDGET_AMOUNT=${CLOUD_RUN_BUDGET_AMOUNT:-$(setup_value run_budget_amount 5)}
+CLOUD_RUN_BUDGET_CURRENCY=${CLOUD_RUN_BUDGET_CURRENCY:-$(setup_value run_budget_currency TWD)}
+CLOUD_RUN_BUDGET_AMOUNT=${CLOUD_RUN_BUDGET_AMOUNT:-$(setup_value run_budget_amount 300)}
+IDLE_SHUTDOWN_SECONDS=${IDLE_SHUTDOWN_SECONDS:-$(setup_value idle_shutdown_seconds 0)}
+SCALER_ROLE="projects/$PROJECT_ID/roles/vocaltuneServiceScaler"
 IMAGE_TAG=${IMAGE_TAG:-$(date -u +%Y%m%d%H%M%S)}
 IMAGE="$REGISTRY_REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/separation:$IMAGE_TAG"
 RUNTIME_ACCOUNT="vocaltune-separation@$PROJECT_ID.iam.gserviceaccount.com"
 export CLOUDSDK_BILLING_QUOTA_PROJECT="$PROJECT_ID"
 if ! [[ "$MAX_MONTHLY_GPU_SECONDS" =~ ^(0|[1-9][0-9]{0,4})$ ]] || (( MAX_MONTHLY_GPU_SECONDS > 40000 )); then
   echo 'MAX_MONTHLY_GPU_SECONDS must be an integer between 0 and 40000.' >&2
+  exit 2
+fi
+if ! [[ "$IDLE_SHUTDOWN_SECONDS" =~ ^(0|[1-9][0-9]{0,2})$ ]] || (( IDLE_SHUTDOWN_SECONDS > 600 )); then
+  echo 'IDLE_SHUTDOWN_SECONDS must be 0 (disabled) or an integer from 1 to 600.' >&2
   exit 2
 fi
 run() {
@@ -108,6 +114,16 @@ else:
 PY
 fi
 run gcloud secrets add-iam-policy-binding "$API_KEY_SECRET" --member="serviceAccount:$RUNTIME_ACCOUNT" --role=roles/secretmanager.secretAccessor --project="$PROJECT_ID"
+if [[ "$IDLE_SHUTDOWN_SECONDS" != 0 ]]; then
+  if [[ "$mode" == --dry-run ]] || ! gcloud iam roles describe vocaltuneServiceScaler --project="$PROJECT_ID" >/dev/null 2>&1; then
+    run gcloud iam roles create vocaltuneServiceScaler --project="$PROJECT_ID" \
+      --title='VocalTune service scaler' --permissions=run.services.get,run.services.update --stage=GA
+  fi
+  run gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_ACCOUNT" \
+    --member="$CALLER_MEMBER" --role=roles/iam.serviceAccountUser --project="$PROJECT_ID"
+  run gcloud artifacts repositories add-iam-policy-binding "$REPOSITORY" --location="$REGISTRY_REGION" \
+    --member="$CALLER_MEMBER" --role=roles/artifactregistry.reader --project="$PROJECT_ID"
+fi
 run gcloud auth configure-docker "$REGISTRY_REGION-docker.pkg.dev" --quiet
 run docker build --platform linux/amd64 -f cloud_service/Dockerfile -t "$IMAGE" cloud_service
 run docker push "$IMAGE"
@@ -121,4 +137,8 @@ run gcloud run deploy "$SERVICE" --project="$PROJECT_ID" --region="$REGION" \
   --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT_ID,MAX_MONTHLY_GPU_SECONDS=$MAX_MONTHLY_GPU_SECONDS,QUOTA_COLLECTION=vocaltune_gpu_quota" \
   --quiet
 run gcloud run services add-iam-policy-binding "$SERVICE" --region="$REGION" --project="$PROJECT_ID" --member="$CALLER_MEMBER" --role=roles/run.invoker
+if [[ "$IDLE_SHUTDOWN_SECONDS" != 0 ]]; then
+  run gcloud run services add-iam-policy-binding "$SERVICE" --region="$REGION" --project="$PROJECT_ID" \
+    --member="$CALLER_MEMBER" --role="$SCALER_ROLE"
+fi
 run gcloud run services describe "$SERVICE" --region="$REGION" --project="$PROJECT_ID" --format='value(status.url)'

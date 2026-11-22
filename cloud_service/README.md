@@ -14,7 +14,7 @@
   沿用已上傳的模型映像，避免建立第二份完整映像儲存；跨區傳輸可能另外計費。
 - Cloud Run 執行身分為 `vocaltune-separation@vocaltune-sep-20261123-9176.iam.gserviceaccount.com`；
   本地呼叫身分為 `vocaltune-client@vocaltune-sep-20261123-9176.iam.gserviceaccount.com`。
-- Cloud Run 保持 IAM 私有，呼叫身分只有此服務的 `roles/run.invoker`。
+- Cloud Run 保持 IAM 私有，呼叫身分有此服務的 `roles/run.invoker`。
   服務內另外驗證 `X-API-Key`。直接從瀏覽器開私有 API 會被拒絕，請使用原本的本地介面。
 
 本機設定記錄在 `/home/ricky/.config/vocaltune/cloud-setup.json`。
@@ -38,6 +38,33 @@ docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d --build v
 
 要明確只用本地，將 `.env` 的 `SEPARATION_CLOUD_ENABLED` 改為 `0` 後重新建立容器。
 新安裝環境的 `.env.example` 預設為 0，避免自動產生雲端用量。
+
+## 兩分鐘閒置暫停
+
+Cloud Run 沒有可設定為 120 秒的原生閒置逾時；此版本使用官方
+[manual scaling](https://docs.cloud.google.com/run/docs/configuring/services/manual-scaling)
+控制，不依賴讓容器自行退出。以下設定需本地程式更新後才會啟用，費用門檻調整則已生效：
+
+```dotenv
+SEPARATION_IDLE_SHUTDOWN_SECONDS=120
+SEPARATION_CLOUD_REGION=asia-southeast1
+SEPARATION_CLOUD_SERVICE=vocaltune-separation
+```
+
+- 本地單一後端程序管理此服務；不可讓多個後端程序或其他主機共用此暫停邏輯。
+- 所有上傳、推論、ZIP 下載及驗證完成後才開始計時；仍有任務或另一首歌下載時不暫停。
+- 120 秒無工作後，要求 `scalingMode=MANUAL, manualInstanceCount=0`；不刪除服務。
+- 下一個任務先恢復 `AUTOMATIC`，再上傳音訊，因此仍有冷啟動等待。
+  運算時不固定維持 1 個 instance，本地控制器異常時仍保留平台自動縮容作為備援。
+- 每 5 秒檢查一次；API 調整與實際釋放 GPU 有延遲，並非第 120 秒精準斷電。
+- 本地正常停止時亦嘗試暫停。控制 API 暫時失敗時重試；喚醒失敗則走本地分軌。
+  分軌 429 冷卻期間不會再次喚醒。
+
+呼叫服務帳戶另取得只綁此服務的 `vocaltuneServiceScaler` 自訂角色
+（`run.services.get`、`run.services.update`），以及指定 runtime SA 的
+`roles/iam.serviceAccountUser` 與指定模型 repository 的 `roles/artifactregistry.reader`。
+IAM 的 update 權限可更新此服務；程式以 etag 與 updateMask 僅變更 scaling 欄位。
+`deploy.sh` 在啟用此功能時可重建上述權限，不授予專案範圍的 Cloud Run 管理員角色。
 
 ## REST 介面與相容性
 
@@ -73,9 +100,9 @@ ZIP 在記憶體接收，驗證軌數、檔名、大小、WAV header 與 CRC 後
 
 此部署已取得允許連結帳單及可能自付超額的授權；以下控制降低風險，並非零自付保證。
 
-- **整個分軌專案預算**：US$10 等值 NT$324.21，依 2026-11-23 查到的 Google
-  Cloud Billing 匯率 32.421 換算；50%、80%、100% 通知。這是預算警示，並非全服務硬上限。
-- **Cloud Run 自動停用門檻**：每月 NT$100，scope 限此專案的 Cloud Run，
+- **整個分軌專案預算**：每月 NT$300；50%、80%、100% 通知。
+  這是預算警示，並非全服務硬上限。
+- **Cloud Run 自動停用門檻**：每月 NT$300（由 NT$100 調高），scope 限此專案的 Cloud Run，
   不扣抵 credits 的毛額計算；已讀回確認 `spendCap.outputState=CONFIGURED`。
 - **推論程序配額**：目前部署的 `MAX_MONTHLY_GPU_SECONDS=12000`。
   程式及一般部署預設仍支援 40000，這台主機的設定檔會帶入較保守的 12000。
@@ -102,6 +129,15 @@ REQUIRE_ZERO_OUT_OF_POCKET=0 ./deploy.sh --execute
 
 腳本先確認帳單及 Cloud Run spend cap，再建立資源、預載模型、推送映像並部署。
 相同金鑰不會重複建立 Secret 版本。新環境還需 gcloud 登入、服務帳戶與 L4 配額；
+
+明確變更既有費用門檻時，可使用以下命令；預設不會覆寫金額不同的 cap。
+更新時使用既有 etag，且保留 `spendCap.inputState=CONFIGURED`：
+
+```bash
+python3 cloud_service/configure_budget.py --project=YOUR_PROJECT_ID \
+  --billing-account=YOUR_BILLING_ACCOUNT --currency=TWD --amount=300 \
+  --update-existing --execute
+```
 此主機新加坡區域已核准 1 張。此主機單張 L4 的服務部署不需要再做帳號登入。
 
 本機單元測試需 Python 與 FFmpeg：
@@ -117,7 +153,10 @@ python3 -m venv /tmp/vocaltune-cloud-tests
 本地正式 API 已經完成雲端六軌分離並驗證每軌支援 HTTP byte range 播放。
 另外以關閉網路的容器測試實際本地 CPU 推論，確認斷線後可使用快取模型完成六軌。
 上傳影片的卡拉 OK 流程亦已完成雲端六軌、伴奏混音、人聲 MP3 及影片合成實測。
-Cloud Run 日誌已觀察到閒置關閉及下一次請求觸發自動啟動；39 項單元與回歸測試通過。
+Cloud Run 日誌已觀察到平台預設的閒置關閉及下一次請求觸發自動啟動。
+兩分鐘控制另外測試併發下載、暫停與新任務競爭、喚醒失敗、429 冷卻及預算更新；
+實際服務使用 `validateOnly` 驗證暫停與喚醒權限，不變更線上擴縮或部署新映像。
+目前共 56 項單元與回歸測試通過。
 2026-11-23 已修正完整歌曲下載中斷便直接退回 CPU 的問題。
 以同一首 222.67 秒歌曲走正式 `/api/separate-local` 流程，六軌於 50.21 秒完成，
 確認產生雲端結果目錄、每軌長度正確且支援 byte range；壓縮 ZIP 為 133,564,870 bytes。

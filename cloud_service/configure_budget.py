@@ -16,6 +16,8 @@ def main():
     parser.add_argument("--currency", required=True)
     parser.add_argument("--amount", type=int, required=True)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--update-existing", action="store_true",
+                        help="Explicitly allow changing a matching cap, using its etag")
     args = parser.parse_args()
     if args.amount <= 0:
         parser.error("amount must be positive")
@@ -42,13 +44,14 @@ def main():
         return
     token = subprocess.check_output(["gcloud", "auth", "print-access-token"], text=True).strip()
 
-    def request(url, body=None):
+    def request(url, body=None, method=None):
         headers = {"Authorization": "Bearer " + token,
                    "x-goog-user-project": args.project}
         if body is not None:
             headers["Content-Type"] = "application/json"
         req = urllib.request.Request(url, headers=headers,
-                                     data=json.dumps(body).encode() if body is not None else None)
+                                     data=json.dumps(body).encode() if body is not None else None,
+                                     method=method)
         try:
             with urllib.request.urlopen(req, timeout=30) as response:
                 return json.load(response)
@@ -74,13 +77,26 @@ def main():
     existing = matches[0] if matches else None
     if existing:
         amount = existing.get("amount", {}).get("specifiedAmount", {})
-        if amount.get("currencyCode") != args.currency or int(amount.get("units", 0)) != args.amount:
-            raise RuntimeError("Existing spend cap differs; refusing to overwrite it")
+        if amount.get("currencyCode") != args.currency:
+            raise RuntimeError("Existing spend cap currency differs; refusing to overwrite it")
+        if int(amount.get("units", 0)) != args.amount or int(amount.get("nanos", 0)):
+            if not args.update_existing:
+                raise RuntimeError("Existing spend cap differs; use --update-existing to change it")
+            if not existing.get("etag"):
+                raise RuntimeError("Existing cap has no etag; refusing an unguarded update")
+            request("https://billingbudgets.googleapis.com/v1/" + existing["name"] + "?updateMask=amount,spendCap",
+                    {"name": existing["name"], "etag": existing["etag"], "amount": desired["amount"],
+                     "spendCap": {"inputState": "CONFIGURED"}},
+                    method="PATCH")
         result = request("https://billingbudgets.googleapis.com/v1/" + existing["name"])
     else:
         created = request(base, desired)
         result = request("https://billingbudgets.googleapis.com/v1/" + created["name"])
     actual = result.get("spendCap", {})
+    amount = result.get("amount", {}).get("specifiedAmount", {})
+    if (amount.get("currencyCode") != args.currency or int(amount.get("units", 0)) != args.amount
+            or int(amount.get("nanos", 0))):
+        raise RuntimeError("Spend cap amount read-back did not match")
     if actual.get("outputState") not in ("CONFIGURED", "ENFORCED"):
         raise RuntimeError("Spend cap is not configured: " + json.dumps(actual))
     print(json.dumps(result, indent=2))
