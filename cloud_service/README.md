@@ -98,6 +98,42 @@ ZIP 在記憶體接收，驗證軌數、檔名、大小、WAV header 與 CRC 後
 
 ## 費用與配額
 
+### 管理模式費用面板
+
+此版本新增費用面板，需應用程式更新後才會出現在網站：桌面按 `Ctrl+Shift+A`、
+手機點左上角 Logo 登入既有管理模式，再按右下角「雲端費用」。
+`GET /api/admin/cloud-billing` 會驗證管理模式 token，匿名請求回 401，回應禁止快取。
+
+- Google 費用通知分為整個分軌專案的扣抵前、包含所有折扣／點數後費用。
+  通知經私有 Pub/Sub pull subscription 讀取，依預算 ID、帳單帳戶、月份及發佈時間驗證；
+  重複或晚到的舊訊息不會覆蓋新資料，先持久化才 ack。
+- [Google 通知](https://docs.cloud.google.com/billing/docs/how-to/budgets-programmatic-notifications)
+  每日更新數次，首次可能需數小時。沒有回報不等於 NT$0；未回報時預算餘額也標為未知。
+- Cloud Run 估算另外使用當月 Monitoring billable seconds、CPU allocation seconds、傳出 bytes，
+  搭配官方 Catalog 的新加坡 L4、CPU、RAM 與網路 TWD SKU 價格。16 GiB 記憶體按目前配置估算，
+  若歷史 revision 的資源配置不同，估算不適用；網路假設所有傳出量按一般 APAC 費率計算。
+  這不是正式帳單，未扣免費額度，也不含映像儲存等其他服務。
+- 免費點數的剩餘金額、是否已兌換以及 Cloud Run 是否符合適用範圍無法由預算金額推算。
+  面板保留「未核實」並提供官方 Credits 與 Reports 連結，不宣稱估算低於 NT$300 即零自付。
+- 面板開啟時每分鐘查詢；後端快取 60 秒、SKU 快取一天，刷新失敗時保留舊數據與原時間。
+  查詢僅呼叫 Google 管理 API，不會送請求啟動 GPU 服務。
+
+本機資料來源設定已準備在持久化的 `db_data/cloud_billing_config.json`；費用快照存於
+`db_data/cloud_billing_status.json`，權限 0600，不納入 Git。其他主機可透過以下腳本設定：
+
+```bash
+python3 cloud_service/configure_cost_reporting.py --project=YOUR_PROJECT_ID \
+  --billing-account=YOUR_BILLING_ACCOUNT --gross-budget=YOUR_PROJECT_BUDGET_RESOURCE_NAME \
+  --caller=YOUR_CALLER_SERVICE_ACCOUNT --output=/path/to/private/settings.json --execute
+```
+
+將輸出設定放入後端持久化 `db_data/cloud_billing_config.json`，或以
+`SEPARATION_BILLING_CONFIG_FILE` 指定後端容器可讀的路徑。腳本只配置費用通知與讀取權限，
+不部署應用程式或啟動 GPU。新增的扣抵後預算僅供資料回報，不設花費停用動作，也不新增 email 通知。
+Pub/Sub 與 Monitoring 使用標準計價；訊息量很小仍應納入總費用考量。
+呼叫身分僅取得指定 subscription 的 subscriber，以及此專案的 Monitoring viewer、
+Service Usage consumer，不取得整個帳單帳戶的管理權。
+
 此部署已取得允許連結帳單及可能自付超額的授權；以下控制降低風險，並非零自付保證。
 
 - **整個分軌專案預算**：每月 NT$300；50%、80%、100% 通知。
@@ -156,7 +192,7 @@ python3 -m venv /tmp/vocaltune-cloud-tests
 Cloud Run 日誌已觀察到平台預設的閒置關閉及下一次請求觸發自動啟動。
 兩分鐘控制另外測試併發下載、暫停與新任務競爭、喚醒失敗、429 冷卻及預算更新；
 實際服務使用 `validateOnly` 驗證暫停與喚醒權限，不變更線上擴縮或部署新映像。
-目前共 56 項單元與回歸測試通過。
+目前共 69 項單元與回歸測試通過。
 2026-11-23 已修正完整歌曲下載中斷便直接退回 CPU 的問題。
 以同一首 222.67 秒歌曲走正式 `/api/separate-local` 流程，六軌於 50.21 秒完成，
 確認產生雲端結果目錄、每軌長度正確且支援 byte range；壓縮 ZIP 為 133,564,870 bytes。

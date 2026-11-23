@@ -36,6 +36,7 @@ from karaoke import process_karaoke_job, KARAOKE_DIR
 from ai_device import demucs_python, get_demucs_device
 from separation_client import try_cloud_separation
 from cloud_scaling import get_idle_controller, close_idle_controller
+from cloud_billing_api import router as cloud_billing_router
 from utils.youtube_search import search_youtube
 import db
 
@@ -274,6 +275,7 @@ app = FastAPI(
     description="YouTube 音樂下載與 AI 人聲分離服務",
     version="2.0.0"
 )
+app.include_router(cloud_billing_router)
 
 # CORS Configuration
 app.add_middleware(
