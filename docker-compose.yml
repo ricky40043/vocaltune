@@ -8,6 +8,7 @@ services:
       - .env
     environment:
       ADMIN_MODE_PASSWORD: "go for it"
+      VOCALTUNE_QUEUE_DIR: /app/backend-api/queues
     ports:
       - "18300:8080"
     volumes:
@@ -16,6 +17,8 @@ services:
       - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/separated:/app/backend-api/separated
       - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/karaoke_output:/app/backend-api/karaoke_output
       - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/db_data:/app/backend-api/db_data
+      - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/torch-cache:/root/.cache/torch
+      - ${VOCALTUNE_DATA_DIR:-/srv/vocaltune}/queues:/app/backend-api/queues
     restart: unless-stopped
     # Optional CPU limit to keep your PC smooth
     # deploy:

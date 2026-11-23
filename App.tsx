@@ -10,6 +10,7 @@ import { MidiTranscriber } from './components/MidiTranscriber';
 import { KaraokePlayer } from './components/KaraokePlayer';
 import { SongRequestSystem } from './components/SongRequestSystem';
 import { ADMIN_TOKEN_KEY, adminHeaders, isAdminMode, validateMediaFile } from './utils/mediaPolicy';
+const CloudBillingPanel = React.lazy(() => import('./components/CloudBillingPanel'));
 
 // API Configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL !== undefined)
@@ -51,6 +52,7 @@ export default function App() {
     const [adminPassword, setAdminPassword] = useState('');
     const [adminError, setAdminError] = useState<string | null>(null);
     const [adminMode, setAdminMode] = useState(isAdminMode());
+    const [showCloudBilling, setShowCloudBilling] = useState(false);
 
     const openAdminLogin = React.useCallback(() => {
         setAdminPassword('');
@@ -574,10 +576,14 @@ export default function App() {
                 </div>
 
                 {adminMode && (
-                    <div className="fixed bottom-4 right-4 z-40 rounded-full border border-amber-400/50 bg-amber-950/90 px-4 py-2 text-xs font-bold text-amber-200 shadow-lg">
-                        ADMIN 模式｜不限 10 分鐘
-                    </div>
+                    <button type="button" onClick={() => setShowCloudBilling(true)} aria-label="開啟雲端費用"
+                        className="fixed bottom-4 right-4 z-40 rounded-full border border-amber-400/50 bg-amber-950/90 px-4 py-2 text-xs font-bold text-amber-200 shadow-lg hover:bg-amber-900">
+                        ADMIN 模式｜不限 10 分鐘 · 雲端費用
+                    </button>
                 )}
+                {adminMode && showCloudBilling && <React.Suspense fallback={<p role="status">載入費用面板…</p>}>
+                    <CloudBillingPanel onClose={() => setShowCloudBilling(false)} />
+                </React.Suspense>}
 
                 {showAdminLogin && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="管理模式登入">

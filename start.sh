@@ -5,6 +5,25 @@
 set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd -- "$PROJECT_DIR"
+
+# Preserve the configured credential mount when using the normal entrypoint.
+vocaltune_compose_files=(-f docker-compose.yml)
+vocaltune_cloud_enabled=0
+if [ -f .env ]; then
+    while IFS='=' read -r vocaltune_env_name vocaltune_env_value; do
+        vocaltune_env_name="${vocaltune_env_name//[[:space:]]/}"
+        if [[ "$vocaltune_env_name" == SEPARATION_CLOUD_ENABLED ]]; then
+            vocaltune_env_value="${vocaltune_env_value%%#*}"
+            vocaltune_env_value="${vocaltune_env_value//[[:space:]]/}"
+            vocaltune_env_value="${vocaltune_env_value//\"/}"
+            vocaltune_cloud_enabled="${vocaltune_env_value//\'/}"
+        fi
+    done < .env
+fi
+if [[ "$vocaltune_cloud_enabled" == 1 ]]; then
+    vocaltune_compose_files+=(-f docker-compose.cloud.yml)
+fi
 
 echo "🐳 VocalTune Pro (Docker Mode)"
 echo "=============================="
@@ -57,7 +76,7 @@ else
 fi
 
 # 執行
-$CMD up --build
+$CMD "${vocaltune_compose_files[@]}" up --build
 
 # 完成後提示
 echo ""

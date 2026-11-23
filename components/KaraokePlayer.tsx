@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, Loader2, Download, Mic, Youtube, SkipForward, SkipBack, Plus, Minus, Music, ListMusic, Maximize2, Minimize2 } from 'lucide-react';
 import * as Tone from 'tone';
-import { getGrainSettings } from '../utils/audioQuality';
 import { adminHeaders } from '../utils/mediaPolicy';
 
 // API Configuration
@@ -45,11 +44,14 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
 
     // Pitch shift state
     const [pitchSemitones, setPitchSemitones] = useState(0);
-    const videoGrainRef = useRef<Tone.GrainPlayer | null>(null);
-    const vocalsGrainRef = useRef<Tone.GrainPlayer | null>(null);
+    const backingPlayerRef = useRef<Tone.Player | null>(null);
+    const backingPitchRef = useRef<Tone.PitchShift | null>(null);
+    const vocalsPlayerRef = useRef<Tone.Player | null>(null);
+    const vocalsPitchRef = useRef<Tone.PitchShift | null>(null);
     const [pitchReady, setPitchReady] = useState(false);
-    const [pitchInitialized, setPitchInitialized] = useState(false); // GrainPlayers only init on first pitch use
-    const pitchActiveRef = useRef(false); // Whether pitch shift audio is active
+    const [pitchInitialized, setPitchInitialized] = useState(false);
+    const pitchActiveRef = useRef(false);
+    const pitchOutputStartedRef = useRef(false);
 
     // Helper: load a job by ID
     const loadJob = (id: string) => {
@@ -264,233 +266,288 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
         }
     }, [status, videoUrl]);
 
-    // Setup GrainPlayer for audio playback (Backing + Vocals)
-    // Only initializes after user first interacts with pitch controls to avoid
-    // creating a suspended AudioContext on iOS that silences the native video element.
+    // Build a stable Player -> PitchShift chain after the first key-change gesture.
     useEffect(() => {
-        if (status !== 'completed' || !videoUrl) return;
-        if (!pitchInitialized) return;
+        if (status !== 'completed' || !videoUrl || !pitchInitialized) return;
 
         let cancelled = false;
 
-        const setupGrainPlayers = async () => {
+        const decodeAudio = async (url: string) => {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Audio fetch failed: ${response.status}`);
+            const bytes = await response.arrayBuffer();
+            const audioContext = Tone.getContext().rawContext as AudioContext;
+            const decoded = await audioContext.decodeAudioData(bytes.slice(0));
+            return new Tone.ToneAudioBuffer(decoded);
+        };
+
+        const setupPitchPlayers = async () => {
             try {
-                // Determine backing track source (prefer instrumental.mp3, fallback to video file)
                 const backingUrl = instrumentalUrl || videoUrl;
-
-                // Fetch backing audio and decode
-                const videoResponse = await fetch(backingUrl);
-                if (cancelled) return;
-                const videoBuffer = await videoResponse.arrayBuffer();
+                const backingBuffer = await decodeAudio(backingUrl);
                 if (cancelled) return;
 
-                const audioCtx = Tone.getContext().rawContext as AudioContext;
-                const decodedVideo = await audioCtx.decodeAudioData(videoBuffer.slice(0));
-                if (cancelled) return;
+                const backingPitch = new Tone.PitchShift();
+                backingPitch.pitch = pitchSemitones;
+                backingPitch.toDestination();
 
-                // Create ToneAudioBuffer from decoded data
-                const toneVideoBuffer = new Tone.ToneAudioBuffer(decodedVideo);
-                const initialStemGrainSettings = getGrainSettings(pitchSemitones * 100, 'stem');
-                const videoGrain = new Tone.GrainPlayer({
-                    url: toneVideoBuffer,
-                    grainSize: initialStemGrainSettings.grainSize,
-                    overlap: initialStemGrainSettings.overlap,
-                    loop: false,
+                const backingPlayer = new Tone.Player({
+                    url: backingBuffer,
+                    autostart: false,
                 });
+                backingPlayer.volume.value = -2;
+                backingPlayer.connect(backingPitch);
 
-                // Always running, volume controlled by pitch state
-                videoGrain.volume.value = 0; // Default volume (unless pitch=0 logic overrides)
-                videoGrain.toDestination();
-                videoGrainRef.current = videoGrain;
+                backingPlayerRef.current = backingPlayer;
+                backingPitchRef.current = backingPitch;
 
-                // Fetch vocals audio if available
                 if (vocalsUrl) {
                     try {
-                        const vocalsResponse = await fetch(vocalsUrl);
-                        if (!vocalsResponse.ok) throw new Error(`Vocals fetch failed: ${vocalsResponse.status}`);
-                        if (cancelled) return;
-                        const vocalsBuffer = await vocalsResponse.arrayBuffer();
-                        if (cancelled) return;
-                        const decodedVocals = await audioCtx.decodeAudioData(vocalsBuffer.slice(0));
+                        const vocalsBuffer = await decodeAudio(vocalsUrl);
                         if (cancelled) return;
 
-                        const toneVocalsBuffer = new Tone.ToneAudioBuffer(decodedVocals);
-                        const vocalsGrain = new Tone.GrainPlayer({
-                            url: toneVocalsBuffer,
-                            grainSize: initialStemGrainSettings.grainSize,
-                            overlap: initialStemGrainSettings.overlap,
-                            loop: false,
+                        const vocalsPitch = new Tone.PitchShift();
+                        vocalsPitch.pitch = pitchSemitones;
+                        vocalsPitch.toDestination();
+
+                        const vocalsPlayer = new Tone.Player({
+                            url: vocalsBuffer,
+                            autostart: false,
                         });
-                        vocalsGrain.volume.value = -Infinity; // Init based on playVocals? Handled by effect
-                        vocalsGrain.toDestination();
-                        vocalsGrainRef.current = vocalsGrain;
-                    } catch (e) {
-                        console.warn('[Karaoke] Could not setup vocals grain player:', e);
+                        vocalsPlayer.volume.value = -2;
+                        vocalsPlayer.connect(vocalsPitch);
+
+                        vocalsPlayerRef.current = vocalsPlayer;
+                        vocalsPitchRef.current = vocalsPitch;
+                    } catch (vocalsError) {
+                        console.warn('[Karaoke] Vocal pitch chain unavailable:', vocalsError);
                     }
                 }
 
                 if (!cancelled) {
                     setPitchReady(true);
-                    console.log('[Karaoke] GrainPlayers ready. Source:', backingUrl === instrumentalUrl ? 'Instrumental MP3' : 'Video File');
+                    console.log('[Karaoke] Player/PitchShift chain ready');
                 }
-            } catch (e) {
-                console.error('[Karaoke] Failed to setup GrainPlayers:', e);
+            } catch (setupError) {
+                console.error('[Karaoke] Failed to initialize pitch audio:', setupError);
+                setPitchReady(false);
+                setError('升降 Key 音訊載入失敗，已保留原始聲音');
             }
         };
 
-        setupGrainPlayers();
+        void setupPitchPlayers();
 
         return () => {
             cancelled = true;
-            try { Tone.Transport.stop(); Tone.Transport.cancel(); } catch (e) { }
-            try { videoGrainRef.current?.unsync(); videoGrainRef.current?.dispose(); } catch (e) { }
-            try { vocalsGrainRef.current?.unsync(); vocalsGrainRef.current?.dispose(); } catch (e) { }
-            videoGrainRef.current = null;
-            vocalsGrainRef.current = null;
-            setPitchReady(false);
+            try { backingPlayerRef.current?.stop(); } catch (e) { }
+            try { vocalsPlayerRef.current?.stop(); } catch (e) { }
+            try { backingPlayerRef.current?.dispose(); } catch (e) { }
+            try { vocalsPlayerRef.current?.dispose(); } catch (e) { }
+            try { backingPitchRef.current?.dispose(); } catch (e) { }
+            try { vocalsPitchRef.current?.dispose(); } catch (e) { }
+            backingPlayerRef.current = null;
+            vocalsPlayerRef.current = null;
+            backingPitchRef.current = null;
+            vocalsPitchRef.current = null;
+            pitchOutputStartedRef.current = false;
             pitchActiveRef.current = false;
+            setPitchReady(false);
         };
     }, [status, videoUrl, vocalsUrl, instrumentalUrl, pitchInitialized]);
 
-    // Start GrainPlayers synced to Transport once they're ready
-    useEffect(() => {
-        if (!pitchReady) return;
-        const video = videoRef.current;
-        if (!video) return;
+    const stopPitchPlayers = useCallback(() => {
+        try { backingPlayerRef.current?.stop(); } catch (e) { }
+        try { vocalsPlayerRef.current?.stop(); } catch (e) { }
+        pitchOutputStartedRef.current = false;
+    }, []);
 
-        const startSync = async () => {
-            try {
-                await Tone.start();
-
-                // Sync GrainPlayers to Transport (start once, never stop)
-                if (videoGrainRef.current) {
-                    videoGrainRef.current.sync().start(0);
-                }
-                if (vocalsGrainRef.current) {
-                    vocalsGrainRef.current.sync().start(0);
-                }
-
-                // Set Transport to current video position
-                Tone.Transport.seconds = video.currentTime;
-                if (!video.paused) {
-                    Tone.Transport.start(undefined, video.currentTime);
-                }
-
-                console.log('[Karaoke] GrainPlayers synced to Transport');
-            } catch (e) {
-                console.error('[Karaoke] Failed to start grain playback:', e);
-            }
-        };
-
-        startSync();
-    }, [pitchReady]);
-
-    // Sync Tone.Transport with video play/pause/seek (always active when pitchReady)
-    useEffect(() => {
-        if (!pitchReady) return;
-        const video = videoRef.current;
-        if (!video) return;
-
-        const onVideoPlay = () => {
-            // Ensure context is running when video plays (especially via native controls)
-            Tone.start();
-            Tone.Transport.start(undefined, video.currentTime);
-        };
-        const onVideoPause = () => {
-            Tone.Transport.pause();
-        };
-        const onVideoSeeked = () => {
-            const wasPlaying = Tone.Transport.state === 'started';
-            Tone.Transport.pause();
-            Tone.Transport.seconds = video.currentTime;
-            if (wasPlaying || !video.paused) {
-                Tone.Transport.start(undefined, video.currentTime);
-            }
-        };
-
-        video.addEventListener('play', onVideoPlay);
-        video.addEventListener('pause', onVideoPause);
-        video.addEventListener('seeked', onVideoSeeked);
-
-        return () => {
-            video.removeEventListener('play', onVideoPlay);
-            video.removeEventListener('pause', onVideoPause);
-            video.removeEventListener('seeked', onVideoSeeked);
-        };
-    }, [pitchReady]);
-
-    // Update Volume & Detune based on Pitch & Vocals Toggle & Native/WebAudio Strategy
-    useEffect(() => {
+    const restoreNativeAudio = useCallback(() => {
         const video = videoRef.current;
         const vocals = vocalsRef.current;
-        const isActive = pitchSemitones !== 0;
+        if (video) video.muted = false;
+        if (vocals) {
+            vocals.muted = !playVocals;
+            vocals.volume = playVocals ? 1 : 0;
 
-        if (isActive) {
-            // --- PITCH SHIFT MODE (Use Web Audio) ---
-
-            // Mute native elements ONLY if custom GrainPlayer is ready
             if (video) {
-                // If videoGrain exists, mute native video. Else keep it (untuned).
-                video.muted = !!videoGrainRef.current;
-            }
-            if (vocals) {
-                if (vocalsGrainRef.current) {
-                    vocals.muted = true;
-                    vocals.volume = 0;
-                } else {
-                    // Fallback: If no GrainPlayer, use native vocals even in pitch mode (untuned)
-                    vocals.muted = !playVocals;
-                    vocals.volume = playVocals ? 1 : 0;
+                const drift = Math.abs(vocals.currentTime - video.currentTime);
+                if (drift > 0.15) vocals.currentTime = video.currentTime;
+
+                if (playVocals && !video.paused) {
+                    void vocals.play().catch((playError) => {
+                        console.warn('[Karaoke] Could not resume native vocals:', playError);
+                    });
+                } else if (!playVocals) {
+                    vocals.pause();
                 }
             }
+        }
+    }, [playVocals]);
 
-            // Enable GrainPlayers
-            const grainSettings = getGrainSettings(pitchSemitones * 100, 'stem');
-            if (videoGrainRef.current) {
-                videoGrainRef.current.grainSize = grainSettings.grainSize;
-                videoGrainRef.current.overlap = grainSettings.overlap;
-                videoGrainRef.current.detune = pitchSemitones * 100;
-                videoGrainRef.current.volume.value = -4;
+    const startPitchPlayersAt = useCallback(async (offset: number, vocalsEnabled: boolean = playVocals) => {
+        const video = videoRef.current;
+        const backingPlayer = backingPlayerRef.current;
+        const backingPitch = backingPitchRef.current;
+        if (!video || !backingPlayer || !backingPitch || pitchSemitones === 0) return false;
+
+        try {
+            await Tone.start();
+            const rawContext = Tone.getContext().rawContext as AudioContext;
+            if (rawContext.state !== 'running') await rawContext.resume();
+
+            stopPitchPlayers();
+            backingPitch.pitch = pitchSemitones;
+            if (vocalsPitchRef.current) vocalsPitchRef.current.pitch = pitchSemitones;
+
+            const backingDuration = backingPlayer.buffer.duration || 0;
+            const safeOffset = Math.max(0, Math.min(offset, Math.max(0, backingDuration - 0.05)));
+            backingPlayer.start('+0.02', safeOffset);
+
+            if (vocalsEnabled && vocalsPlayerRef.current) {
+                const vocalsDuration = vocalsPlayerRef.current.buffer.duration || 0;
+                const vocalOffset = Math.max(0, Math.min(offset, Math.max(0, vocalsDuration - 0.05)));
+                vocalsPlayerRef.current.start('+0.02', vocalOffset);
             }
-            if (vocalsGrainRef.current) {
-                vocalsGrainRef.current.grainSize = grainSettings.grainSize;
-                vocalsGrainRef.current.overlap = grainSettings.overlap;
-                vocalsGrainRef.current.detune = pitchSemitones * 100;
-                vocalsGrainRef.current.volume.value = playVocals ? -4 : -Infinity;
-            }
-        } else {
-            // --- NORMAL MODE (Use Native Audio for Stability) ---
 
-            // Unmute native video (Backing)
-            if (video) video.muted = false;
+            pitchOutputStartedRef.current = true;
+            video.muted = true;
 
-            // Handle native vocals
-            if (vocals) {
-                vocals.muted = !playVocals;
-                vocals.volume = playVocals ? 1 : 0;
+            const nativeVocals = vocalsRef.current;
+            if (nativeVocals) {
+                nativeVocals.pause();
+                nativeVocals.muted = true;
+                nativeVocals.volume = 0;
             }
 
-            // Mute GrainPlayers (but keep them synced/running to avoid re-sync delay)
-            if (videoGrainRef.current) videoGrainRef.current.volume.value = -Infinity;
-            if (vocalsGrainRef.current) vocalsGrainRef.current.volume.value = -Infinity;
+            setError(null);
+            return true;
+        } catch (playbackError) {
+            console.error('[Karaoke] Pitch playback failed:', playbackError);
+            stopPitchPlayers();
+            restoreNativeAudio();
+            setError('升降 Key 啟動失敗，已自動恢復原始聲音');
+            return false;
+        }
+    }, [pitchSemitones, playVocals, restoreNativeAudio, stopPitchPlayers]);
+
+    useEffect(() => {
+        const video = videoRef.current;
+        const isPitchActive = pitchSemitones !== 0;
+        pitchActiveRef.current = isPitchActive;
+
+        if (!video) return;
+
+        if (!isPitchActive) {
+            stopPitchPlayers();
+            restoreNativeAudio();
+            return;
         }
 
-        pitchActiveRef.current = isActive;
+        if (!pitchReady) {
+            // Keep native audio audible while the processed buffers are still loading.
+            restoreNativeAudio();
+            return;
+        }
 
-    }, [pitchSemitones, playVocals, pitchReady]);
+        if (!video.paused) void startPitchPlayersAt(video.currentTime);
 
+        const onPlay = () => { void startPitchPlayersAt(video.currentTime); };
+        const onPause = () => { stopPitchPlayers(); };
+        const onSeeking = () => {
+            stopPitchPlayers();
+            restoreNativeAudio();
+        };
+        const onSeeked = () => {
+            if (!video.paused) void startPitchPlayersAt(video.currentTime);
+        };
 
-    // Handle pitch change from user (needs Tone.start from gesture)
+        video.addEventListener('play', onPlay);
+        video.addEventListener('pause', onPause);
+        video.addEventListener('seeking', onSeeking);
+        video.addEventListener('seeked', onSeeked);
+
+        return () => {
+            video.removeEventListener('play', onPlay);
+            video.removeEventListener('pause', onPause);
+            video.removeEventListener('seeking', onSeeking);
+            video.removeEventListener('seeked', onSeeked);
+            stopPitchPlayers();
+        };
+    }, [pitchReady, pitchSemitones, startPitchPlayersAt, stopPitchPlayers, restoreNativeAudio]);
+
     const changePitch = async (delta: number) => {
-        if (!pitchInitialized) setPitchInitialized(true); // Triggers GrainPlayer setup on first use
-        await Tone.start();
-        setPitchSemitones(s => s + delta);
+        try {
+            await Tone.start();
+            const rawContext = Tone.getContext().rawContext as AudioContext;
+            if (rawContext.state !== 'running') await rawContext.resume();
+            if (!pitchInitialized) setPitchInitialized(true);
+            setPitchSemitones(current => Math.max(-12, Math.min(12, current + delta)));
+        } catch (audioError) {
+            console.error('[Karaoke] Unable to unlock WebAudio:', audioError);
+            restoreNativeAudio();
+            setError('瀏覽器未允許升降 Key 音訊，請再點一次播放後重試');
+        }
     };
 
     const resetPitch = async () => {
-        await Tone.start();
+        stopPitchPlayers();
         setPitchSemitones(0);
+        restoreNativeAudio();
     };
+
+    const toggleVocals = useCallback(async () => {
+        const nextEnabled = !playVocals;
+        const video = videoRef.current;
+        const nativeVocals = vocalsRef.current;
+
+        try {
+            await Tone.start();
+            const rawContext = Tone.getContext().rawContext as AudioContext;
+            if (rawContext.state !== 'running') await rawContext.resume();
+        } catch (audioError) {
+            console.error('[Karaoke] Unable to unlock vocal audio:', audioError);
+        }
+
+        setPlayVocals(nextEnabled);
+
+        if (pitchSemitones !== 0 && pitchReady && video) {
+            const processedVocals = vocalsPlayerRef.current;
+
+            if (!video.paused && nextEnabled && processedVocals) {
+                try {
+                    // Keep the backing Player running. Only add the vocal stem at
+                    // the video's current position so toggling vocals cannot cut music.
+                    try { processedVocals.stop(); } catch (e) { }
+                    const vocalsDuration = processedVocals.buffer.duration || 0;
+                    const vocalOffset = Math.max(0, Math.min(video.currentTime, Math.max(0, vocalsDuration - 0.05)));
+                    processedVocals.start('+0.02', vocalOffset);
+                } catch (playError) {
+                    console.warn('[Karaoke] Processed vocal playback failed:', playError);
+                }
+            } else if (!nextEnabled && processedVocals) {
+                try { processedVocals.stop(); } catch (e) { }
+            }
+
+            return;
+        }
+
+        // Native playback mode: apply the new state immediately.
+        if (nativeVocals) {
+            nativeVocals.muted = !nextEnabled;
+            nativeVocals.volume = nextEnabled ? 1 : 0;
+            nativeVocals.currentTime = video?.currentTime || nativeVocals.currentTime;
+
+            if (nextEnabled && video && !video.paused) {
+                try {
+                    await nativeVocals.play();
+                } catch (playError) {
+                    console.warn('[Karaoke] Native vocal playback was blocked:', playError);
+                }
+            } else if (!nextEnabled) {
+                nativeVocals.pause();
+            }
+        }
+    }, [playVocals, pitchSemitones, pitchReady]);
 
     const toggleVideoPlayback = () => {
         const video = videoRef.current;
@@ -605,6 +662,9 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                 {/* Completed State (Video Player) */}
                 {status === 'completed' && videoUrl && (
                     <div className="space-y-6 animate-fade-in">
+                        <div className="sm:hidden rounded-lg border border-amber-500/40 bg-amber-950/50 px-4 py-3 text-sm text-amber-100">
+                            手機若聽不到升降 Key 或人聲，請先關閉靜音模式，並確認媒體音量已開啟。
+                        </div>
                         <div ref={playerShellRef} className="overflow-hidden rounded-xl border border-gray-700 bg-black shadow-2xl">
                             <div className="aspect-video relative group">
                             <video
@@ -637,7 +697,7 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                                     <button onClick={() => changePitch(-1)} className="rounded-lg bg-white/10 p-2 text-white" title="降 Key"><Minus size={18}/></button>
                                     <span className="min-w-12 text-center text-sm font-bold text-white">Key {pitchSemitones > 0 ? '+' : ''}{pitchSemitones}</span>
                                     <button onClick={() => changePitch(1)} className="rounded-lg bg-white/10 p-2 text-white" title="升 Key"><Plus size={18}/></button>
-                                    <button onClick={() => setPlayVocals(v => !v)} disabled={!vocalsUrl} className={`ml-1 rounded-lg px-3 py-2 text-sm font-bold ${playVocals ? 'bg-purple-600 text-white' : 'bg-white/10 text-gray-200'}`}>{playVocals ? '人聲開' : '人聲關'}</button>
+                                    <button onClick={() => { void toggleVocals(); }} disabled={!vocalsUrl} className={`ml-1 rounded-lg px-3 py-2 text-sm font-bold ${playVocals ? 'bg-purple-600 text-white' : 'bg-white/10 text-gray-200'}`}>{playVocals ? '人聲開' : '人聲關'}</button>
                                     <button onClick={toggleFullscreen} className="ml-auto rounded-lg bg-white/10 p-2 text-white" title="全螢幕">{isFullscreen ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}</button>
                                 </div>
                                 <div className="flex items-center gap-3">
@@ -708,10 +768,7 @@ export const KaraokePlayer: React.FC<KaraokePlayerProps> = ({ youtubeUrl, isActi
                                         <input
                                             type="checkbox"
                                             checked={playVocals}
-                                            onChange={(e) => {
-                                                Tone.start().catch(() => { });
-                                                setPlayVocals(e.target.checked);
-                                            }}
+                                            onChange={() => { void toggleVocals(); }}
                                             className="sr-only peer"
                                             disabled={!vocalsUrl}
                                         />

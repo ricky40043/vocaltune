@@ -1,0 +1,12 @@
+# Optional ADC mount, used together with docker-compose.yml after cloud setup.
+services:
+  vocal-studio:
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/vocaltune-google-adc.json
+    volumes:
+      - type: bind
+        source: ${SEPARATION_ADC_FILE:?Set SEPARATION_ADC_FILE in .env}
+        target: /run/secrets/vocaltune-google-adc.json
+        read_only: true
+        bind:
+          create_host_path: false

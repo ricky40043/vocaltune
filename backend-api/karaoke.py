@@ -20,6 +20,7 @@ from datetime import datetime
 # Shared job updater callback
 from job_store import update_job_status, job_status_store
 from ai_device import demucs_python, get_demucs_device
+from separation_client import try_cloud_separation
 
 async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: str = None):
     """
@@ -60,7 +61,7 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
             
             # Fetch Title First
             try:
-                title_cmd = ["yt-dlp", "--get-title", youtube_url]
+                title_cmd = ["yt-dlp", "--js-runtimes", "deno", "--get-title", youtube_url]
                 # Check for cookies (reuse logic)
                 if Path("cookies.txt").exists():
                     title_cmd.extend(["--cookies", "cookies.txt"])
@@ -86,10 +87,10 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
                 
             cmd = [
                 "yt-dlp",
+                "--js-runtimes", "deno",
                 "-f", "bestvideo+bestaudio/best",
                 "--merge-output-format", "mp4",
                 "-o", str(input_video_path),
-                "--extractor-args", "youtube:player_client=android",
                 "--no-playlist",
                 "--no-playlist",
                 "--no-warnings",
@@ -126,6 +127,14 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
             video_title = Path(file_path).stem # Use filename as title
             
             source_path = Path(file_path)
+            for prefix, directory in (("/files/downloads/", DOWNLOADS_DIR), ("/files/separated/", SEPARATED_DIR)):
+                if file_path.startswith(prefix):
+                    source_path = (directory / file_path[len(prefix):]).resolve()
+                    try:
+                        source_path.relative_to(directory.resolve())
+                    except ValueError:
+                        raise FileNotFoundError("找不到原始檔案") from None
+                    break
             if not source_path.exists():
                  # Try resolving relative path from main directories
                 if (DOWNLOADS_DIR / file_path).exists():
@@ -170,89 +179,95 @@ async def process_karaoke_job(job_id: str, youtube_url: str = None, file_path: s
         if not extracted_audio.exists():
              raise Exception("音訊擷取失敗")
 
-        # 3. Runs Demucs to separate
-        demucs_device = get_demucs_device()
-        update_job_status(job_id, {"status": "separating", "progress": 40, "message": f"AI 去人聲運算中 ({demucs_device})..."})
-        
-        # Use simpler model for speed? or same htdemucs_6s?
-        # User wants quality. htdemucs_6s is good.
-        # Demucs Output: work_dir / htdemucs_6s / source_audio / {vocals.wav, ...}
-        
-        cmd_demucs = [
-            demucs_python(), "-u", "-m", "demucs",
-            "-n", "htdemucs_6s",
-            "-d", demucs_device,
-            "--out", str(work_dir),
-            str(extracted_audio)
-        ]
-        
-        logging.info(f"Starting Demucs: {' '.join(cmd_demucs)}")
-
-        # Demucs parsing logic
-        # Merge stderr to stdout to capture tqdm progress bars
-        proc_demucs = await asyncio.create_subprocess_exec(
-            *cmd_demucs, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        # Preserve six stems for the existing instrument toggles and backing mix.
+        cloud_stems = await try_cloud_separation(
+            extracted_audio, work_dir, 6,
+            on_status=lambda message: update_job_status(job_id, {"message": message}),
         )
-
-        buffer = ""
-        full_log = []
-
-        while True:
-            # Read chunk instead of readline to handle \r
-            chunk = await proc_demucs.stdout.read(4096)
-            if not chunk:
-                break
-            
-            chunk_str = chunk.decode('utf-8', errors='ignore')
-            buffer += chunk_str
-            full_log.append(chunk_str)
-            
-            # Keep log size reasonable
-            if len(full_log) > 1000:
-                full_log = full_log[-500:]
-
-            # Split by either newline or carriage return
-            while '\n' in buffer or '\r' in buffer:
-                if '\n' in buffer:
-                    line, buffer = buffer.split('\n', 1)
-                elif '\r' in buffer:
-                    line, buffer = buffer.split('\r', 1)
-                
-                line = line.strip()
-                if not line:
-                    continue
-                
-                logging.debug(f"[Demucs] {line}")
-                
-                # Parse progress: e.g. " 45%|████... "
-                if "%" in line and "|" in line:
-                    try:
-                        percent_str = line.split('%')[0].strip()
-                        # Get last 3 chars
-                        percent = percent_str[-3:].strip()
-                        if percent.isdigit():
-                            d_prog = int(percent)
-                            # Map Demucs 0-100% to Overall 30-85% (Expanded range for better UX)
-                            overall_prog = 30 + int(d_prog * 0.55)
-                            
-                            if overall_prog % 2 == 0:
-                                update_job_status(job_id, {
-                                    "status": "separating", 
-                                    "progress": overall_prog,
-                                    "message": f"AI 去人聲運算中... {d_prog}%"
-                                })
-                    except:
-                        pass
-
-        await proc_demucs.wait()
+        if cloud_stems is None:
+            # 3. Runs Demucs to separate
+            demucs_device = get_demucs_device()
+            update_job_status(job_id, {"status": "separating", "progress": 40, "message": f"AI 去人聲運算中 ({demucs_device})..."})
         
-        if proc_demucs.returncode != 0:
-            error_msg = "".join(full_log[-20:]) # Last 20 chunks as context
-            raise Exception(f"Demucs 分離失敗 (Exit Code: {proc_demucs.returncode}): {error_msg}")
+            # Use simpler model for speed? or same htdemucs_6s?
+            # User wants quality. htdemucs_6s is good.
+            # Demucs Output: work_dir / htdemucs_6s / source_audio / {vocals.wav, ...}
+        
+            cmd_demucs = [
+                demucs_python(), "-u", "-m", "demucs",
+                "-n", "htdemucs_6s",
+                "-d", demucs_device,
+                "--out", str(work_dir),
+                str(extracted_audio)
+            ]
+        
+            logging.info(f"Starting Demucs: {' '.join(cmd_demucs)}")
+
+            # Demucs parsing logic
+            # Merge stderr to stdout to capture tqdm progress bars
+            proc_demucs = await asyncio.create_subprocess_exec(
+                *cmd_demucs, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+            )
+
+            buffer = ""
+            full_log = []
+
+            while True:
+                # Read chunk instead of readline to handle \r
+                chunk = await proc_demucs.stdout.read(4096)
+                if not chunk:
+                    break
+            
+                chunk_str = chunk.decode('utf-8', errors='ignore')
+                buffer += chunk_str
+                full_log.append(chunk_str)
+            
+                # Keep log size reasonable
+                if len(full_log) > 1000:
+                    full_log = full_log[-500:]
+
+                # Split by either newline or carriage return
+                while '\n' in buffer or '\r' in buffer:
+                    if '\n' in buffer:
+                        line, buffer = buffer.split('\n', 1)
+                    elif '\r' in buffer:
+                        line, buffer = buffer.split('\r', 1)
+                
+                    line = line.strip()
+                    if not line:
+                        continue
+                
+                    logging.debug(f"[Demucs] {line}")
+                
+                    # Parse progress: e.g. " 45%|████... "
+                    if "%" in line and "|" in line:
+                        try:
+                            percent_str = line.split('%')[0].strip()
+                            # Get last 3 chars
+                            percent = percent_str[-3:].strip()
+                            if percent.isdigit():
+                                d_prog = int(percent)
+                                # Map Demucs 0-100% to Overall 30-85% (Expanded range for better UX)
+                                overall_prog = 30 + int(d_prog * 0.55)
+                            
+                                if overall_prog % 2 == 0:
+                                    update_job_status(job_id, {
+                                        "status": "separating",
+                                        "progress": overall_prog,
+                                        "message": f"AI 去人聲運算中... {d_prog}%"
+                                    })
+                        except:
+                            pass
+
+            await proc_demucs.wait()
+        
+            if proc_demucs.returncode != 0:
+                error_msg = "".join(full_log[-20:]) # Last 20 chunks as context
+                raise Exception(f"Demucs 分離失敗 (Exit Code: {proc_demucs.returncode}): {error_msg}")
 
         # 4. Mix Instrumental
         # Folder structure: work_dir/htdemucs_6s/source_audio/
-        demucs_out = work_dir / "htdemucs_6s" / "source_audio"
+        demucs_out = cloud_stems or (work_dir / "htdemucs_6s" / "source_audio")
         
         if not demucs_out.exists():
              # Fallback: Try finding in alternative paths (recursive search)

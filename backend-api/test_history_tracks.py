@@ -47,6 +47,16 @@ class HistoryTrackRecoveryTests(unittest.TestCase):
         self.assertEqual(set(item["tracks"]), set(db.expected_track_names("6")))
         self.assertNotIn("original", item["tracks"])
 
+    def test_completed_history_rebuilds_two_tracks_from_disk(self):
+        self.create_history(stems="2", tracks={})
+        output = self.separated / "job123"
+        output.mkdir()
+        for name in ("vocals", "no_vocals"):
+            (output / f"{name}.wav").touch()
+        item = db.get_user_history_list("ricky")[0]
+        self.assertEqual(item["status"], "completed")
+        self.assertEqual(set(item["tracks"]), {"vocals", "no_vocals"})
+
     def test_completed_history_with_missing_track_becomes_error(self):
         self.create_history(tracks={"vocals": "/old/path.wav"})
         output = self.separated / "job123"
